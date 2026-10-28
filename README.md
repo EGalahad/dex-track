@@ -223,7 +223,19 @@ The training loop uses a reusable rollout buffer. Evaluation is a separate scrip
 For Isaac training, use `backend=isaaclab` and
 `task.robot.usd_path=/absolute/path/to/xhand_bimanual_spec.usd`. Generate the robot
 USD with `scripts/convert_robot.sh` in an existing Isaac installation; object USD
-conversion is handled by the asset loader. Isaac playback accepts `--usd-path`;
+files must also be generated before loading the scene. Using that same Isaac
+Python environment, run the pinned converter on each dataset's collision meshes:
+
+```bash
+"$PYTHON" projects/dex-track/third_party/FlashDexRetarget/src/simulator/isaacsim/convert_assets.py \
+  --data-root /absolute/path/to/prepared_dataset \
+  --objects OBJECT_ID_1 OBJECT_ID_2 --headless
+```
+
+This writes `objects/<id>/.isaac_usd/object.usd`; the loader requires these files.
+Collision SDF grids retain the 0.3 m half-extent for small objects and expand to
+enclose larger collision geometry with a 2 cm margin (128 samples per axis).
+Isaac playback accepts `--usd-path`;
 add `--render --contacts --headless` for contact-point/force overlays.
 `scripts/replay_scene.py --help` describes Viser replay of the saved full scene,
 including playback speed from 0.2× to 1.0× in 0.1 increments.

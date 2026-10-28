@@ -1,7 +1,7 @@
 # Ported from FlashDexRetarget 6f95e13 (MIT); see LICENSE.
 """Associated object state and collision-SDF queries."""
 import torch
-from .sdf import bake_object_sdf_grid as _bake_object_sdf_grid
+from .sdf import bake_object_sdf_grid as _bake_object_sdf_grid, object_sdf_extent
 
 class ObjectPropertiesMixin:
 
@@ -43,13 +43,16 @@ class ObjectPropertiesMixin:
 
     def _init_object_sdf(self, paths, scales):
         self._obj_sdf_grids = {}
-        self._obj_sdf_extent = .3
+        self._obj_sdf_extents = {}
         self._obj_sdf_n = 128
         for side, mesh_paths in paths.items():
-            grids = [_bake_object_sdf_grid(path, scale, self._obj_sdf_extent,
+            extents = [object_sdf_extent(path, scale)
+                       for path, scale in zip(mesh_paths, scales[side])]
+            grids = [_bake_object_sdf_grid(path, scale, extent,
                       self._obj_sdf_n, device=str(self.device))
-                     for path, scale in zip(mesh_paths, scales[side])]
+                     for path, scale, extent in zip(mesh_paths, scales[side], extents)]
             self._obj_sdf_grids[side] = grids[0] if len(grids) == 1 else torch.stack(grids)
+            self._obj_sdf_extents[side] = torch.tensor(extents, device=self.device)
 
     def sdf_query(
         self,
@@ -84,15 +87,19 @@ class ObjectPropertiesMixin:
 
         local = quat_apply_inverse(quat_b, delta)  # (B, K, 3) in object frame
 
-        norm = local / self._obj_sdf_extent  # (B, K, 3)
+        extents = self._obj_sdf_extents[side]
+        slot = None
+        if grid.dim() == 5:
+            slot = self.active_obj_slot(side)
+            if env_ids is not None:
+                slot = slot[env_ids]
+            extents = extents[slot, None, None]
+        norm = local / extents  # (B, K, 3)
         norm_zyx = norm.flip(-1)  # (B, K, 3) reordered to (z, y, x)
         if grid.dim() == 5:
             # Multi-object: pack envs by active slot into ONE batched grid_sample (batch=S);
             # object-count-flat and bit-identical vs the old per-slot launch loop.
             S = grid.shape[0]
-            slot = self.active_obj_slot(side)  # (B,)
-            if env_ids is not None:
-                slot = slot[env_ids]
             order = torch.argsort(slot)  # env ids grouped by slot
             counts = torch.bincount(slot, minlength=S)
             n_max = int(counts.max().item())

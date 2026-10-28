@@ -13,6 +13,12 @@ import warp as wp
 from .collision_geometry import collision_digest, collision_mesh
 
 
+def object_sdf_extent(mesh_path: str, mesh_scale: float) -> float:
+    """Keep the whole collision surface inside the grid, with a 2 cm margin."""
+    mesh = collision_mesh(mesh_path, mesh_scale)
+    return max(.3, float(np.abs(mesh.bounds).max()) + .02)
+
+
 def _cache_path(mesh_path: str, extent: float, N: int, mesh_scale: float) -> Path:
     directory = Path(mesh_path)
     key = hashlib.sha256(f'{collision_digest(directory)}|e={extent}|n={N}|s={mesh_scale}'.encode()).hexdigest()[:20]
@@ -62,5 +68,7 @@ def bake_object_sdf_grid(mesh_path: str, mesh_scale: float, extent: float, N: in
         return torch.load(cache_file, map_location=device, weights_only=True).to(device=device, dtype=torch.float32)
     grid = _build_object_sdf(collision_mesh(mesh_path, mesh_scale), extent, N, str(bake_device or device))
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(torch.from_numpy(grid), cache_file)
+    partial = cache_file.with_suffix('.partial.pt')
+    torch.save(torch.from_numpy(grid), partial)
+    partial.replace(cache_file)
     return torch.from_numpy(grid).to(device=device, dtype=torch.float32)
