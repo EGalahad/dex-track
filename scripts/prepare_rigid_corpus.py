@@ -173,6 +173,10 @@ def oak_unit(job):
 
 def prepare_oak(args):
     source_manifest = json.loads(args.stage_manifest.read_text())
+    if source_manifest.get('requires_fresh_output') and any(
+            any((args.output / name).iterdir())
+            for name in ('human_demo', 'clip-records', 'objects')):
+        raise ValueError('Audited stage patches require a fresh output directory')
     decisions = []
     groups = defaultdict(list)
     for r in source_manifest['stages']:

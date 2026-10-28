@@ -148,6 +148,33 @@ After preparation, replay human + object and robot + object, inspect all collisi
 meshes, and run physical reset/rollout checks before admitting a new training pack.
 Retarget success alone does not establish stable contacts or adequate table support.
 
+For a reviewed stage-object removal plan, validate its source hashes and export
+an affected-stage manifest with `scripts/audit_stage_objects.py`. Omitting
+`--output` performs read-only validation. The tool preserves uncertain objects,
+requires complete background groups, and retains the original stage annotations.
+
+```bash
+"$PYTHON" projects/dex-track/scripts/audit_stage_objects.py \
+  --plan "$AUDIT/final-removal-plan.json" --output "$AUDIT/audited-stage-patch.json"
+"$PYTHON" projects/dex-track/scripts/prepare_rigid_corpus.py \
+  --output "$PREPARED_AUDITED" --workers 4 oakink2 \
+  --raw "$RAW" --compact "$COMPACT" --mano "$MANO" \
+  --stage-manifest "$AUDIT/audited-stage-patch.json"
+```
+
+`PREPARED_AUDITED` must be a new directory. Rebuild hand association and reset
+retargeting there, retaining the whole-recording table-fitting context. These
+affected stages are a patch to the full corpus, not a replacement training set.
+Merge only after checking collision geometry and physical scene support; preserve
+the complete source coverage, exclusions and pending-review records.
+
+To inspect an unresolved object group before deciding, use
+`scripts/render_oakink_stage_review.py --compact "$COMPACT" --mano "$MANO"
+--corpus "$CORPUS" --selection "$AUDIT/uncertain-groups.json" --output "$VIDEOS"`.
+Each video shows source MANO hands and **all recorded objects**, with a full scene
+and close view. Red marks review targets, blue marks their group partners. These
+are kinematic source replays at original mesh scale, not physics or policy runs.
+
 `motion.pt` uses relative `objects/<ID>/` paths, per-clip lengths, scene masks and
 `meta.fps`. Source OakInk2 annotations are 120 Hz; prepared packs are currently
 60 Hz. At load time each clip is independently interpolated to **50 Hz policy**;
