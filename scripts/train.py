@@ -54,6 +54,9 @@ def main(cfg: DictConfig):
         excluded_motions=dict(object_policy.get('excluded_motions', {})))
     preflight['configure_scene_slots'](cfg)
     aa.init(cfg, auto_rank=True)
+    # The native entry point also works without an enabled AA project manifest.
+    # Assets and MDP terms must be imported after the simulator is initialized.
+    import dex_track
 
     print(
         f"is_distributed: {aa.is_distributed()}, local_rank: {aa.get_local_rank()}/{aa.get_world_size()}"

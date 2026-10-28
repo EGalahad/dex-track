@@ -69,6 +69,8 @@ def main():
     runpy.run_path(str(Path(__file__).resolve().parents[1]/'dex_track/data.py'))['configure_scene_slots'](cfg)
     OmegaConf.resolve(cfg)
     aa.init(cfg, auto_rank=False)
+    # Register this project's assets and MDP terms even on a fresh AA install.
+    import dex_track
     from active_adaptation.helpers import make_env_policy, evaluate
     from active_adaptation.learning.modules.vecnorm import VecNorm
     env, policy = make_env_policy(cfg.task, cfg.algo, seed=0, headless=a.headless,

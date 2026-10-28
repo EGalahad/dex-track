@@ -131,6 +131,15 @@ def object_inertial(directory):
     return mass, solid.center_mass, solid.moment_inertia*(mass/raw_mass)
 
 
+def _spawn_isaac_padding(prim_path, cfg, translation=None, orientation=None, **kwargs):
+    """Match the converted objects' rigid-body path: <object>/baseLink."""
+    import isaaclab.sim as sim
+    from isaacsim.core.utils import prims
+    root = prims.create_prim(prim_path, 'Xform', translation=translation, orientation=orientation)
+    sim.spawn_cuboid(f'{prim_path}/baseLink', cfg, **kwargs)
+    return root
+
+
 def scene_object(backend, motion_file, slot):
     """One physical object slot, with per-environment mesh layouts owned by AA."""
     from dex_track.data import load_scene_catalog
@@ -140,10 +149,11 @@ def scene_object(backend, motion_file, slot):
     if backend == 'isaaclab':
         from isaaclab.assets import RigidObjectCfg
         import isaaclab.sim as sim
+        from isaaclab.sim.utils import clone
         spawns = []
         for directory, scale in variants:
             if directory is None:
-                spawns.append(sim.CuboidCfg(size=(.001,.001,.001),
+                spawns.append(sim.CuboidCfg(func=clone(_spawn_isaac_padding), size=(.001,.001,.001),
                     rigid_props=sim.RigidBodyPropertiesCfg(disable_gravity=True,kinematic_enabled=True),
                     collision_props=sim.CollisionPropertiesCfg(collision_enabled=False),
                     mass_props=sim.MassPropertiesCfg(mass=.001),visible=False))
