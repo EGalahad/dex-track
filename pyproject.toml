@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aa-dex-track"
+version = "0.1.0"
+requires-python = ">=3.11,<3.13"
+dependencies = ["active_adaptation", "any4hdmi @ git+https://github.com/EGalahad/any4hdmi.git@bf83602f36ff6fc9796367cfc2b707a2526e1a54", "manifold3d>=3.0,<4"]
+
+[project.optional-dependencies]
+data = ["huggingface-hub", "coacd==1.0.10", "smplx==0.1.28", "scipy", "trimesh", "rtree"]
+
+[project.entry-points."active_adaptation.projects"]
+dex_track = "dex_track"
+
+[project.entry-points."active_adaptation.learning"]
+dex_track = "dex_track_learning"
+
+[tool.setuptools.packages.find]
+include = ["dex_track*", "dex_track_learning*"]

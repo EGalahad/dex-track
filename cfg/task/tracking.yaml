@@ -1,0 +1,146 @@
+# @package task
+name: dex-track
+project: dex_track
+observation_schema: dex-track-v4
+motion_file: ???
+num_envs: 16
+max_episode_length: 1200
+nan_guard: error
+rollout_compile: []
+# Fuse pure controller/FK math without tracing simulator state access.
+tensor_compile: false
+terrain: plane
+enable_cameras: false
+env_spacing: 3.0
+viewer:
+  resolution:
+  - 1280
+  - 720
+  lookat:
+  - 0.0
+  - 0.0
+  - 0.8
+  eye:
+  - 3.0
+  - 3.0
+  - 3.0
+robot:
+  name: dex_track.xhand
+  usd_path: null
+# Populated from the dataset by configure_scene_slots before AA constructs the scene.
+objects: {}
+sim:
+  step_dt: 0.02
+  isaac_physics_dt: 0.005
+  mujoco_physics_dt: 0.005
+  # Dense hand/object contacts at 8192 environments exceed the Isaac default.
+  physx:
+    gpu_max_rigid_patch_count: 1048576
+  nconmax: 256
+  njmax: 1024
+input:
+  wrist:
+    _target_: dex_track.WristVelocityWrench
+    linear_speed: 0.5
+    angular_speed: 2.0
+    kp_pos: 350.0
+    kd_pos: 25.0
+    kp_rot: 40.0
+    kd_rot: 3.0
+    max_force: 100.0
+    max_torque: 10.0
+  finger:
+    _target_: dex_track.FingerPosition
+command:
+  _target_: dex_track.MotionTracking
+  motion_file: ${task.motion_file}
+  sampling: uniform
+  voc:
+    enabled: false
+    duration: 1.0
+    kp_pos: 200.0
+    kd_pos: 10.0
+    kp_rot: 0.2
+    kd_rot: 0.02
+    max_force: 20.0
+    max_torque: 1.0
+    gravity_compensation: true
+observation:
+  proprioception:
+    wrist_pose:
+      _target_: dex_track.wrist_pose
+    wrist_velocity:
+      _target_: dex_track.wrist_velocity
+    joint_pos:
+      _target_: dex_track.joint_pos
+    joint_vel:
+      _target_: dex_track.joint_vel
+    previous_action:
+      _target_: dex_track.previous_action
+    wrist_controller_state:
+      _target_: dex_track.wrist_controller_state
+    voc_active:
+      _target_: dex_track.voc_active
+  scene:
+    object_surface_points_wrist:
+      _target_: dex_track.object_surface_points_wrist
+      n_points: 128
+    link_nearest_surface_wrist:
+      _target_: dex_track.link_nearest_surface_wrist
+      n_points: 128
+  intent:
+    mano_wrist_error_wrist:
+      _target_: dex_track.mano_wrist_error_wrist
+      future_steps: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    mano_tip_error_wrist:
+      _target_: dex_track.mano_tip_error_wrist
+      future_steps: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    object_spatial_error_wrist:
+      _target_: dex_track.object_spatial_error_wrist
+      future_steps: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+reward:
+  _mult_dt_: true
+  tracking:
+    object:
+      _target_: dex_track.object_tracking
+      sigma: 0.1
+      weight: 1.0
+    distance:
+      _target_: dex_track.tip_object_distance
+      sigma: 0.05
+      weight: 0.3
+    wrist_position:
+      _target_: dex_track.wrist_position_tracking
+      sigma: 0.2
+      weight: 0.15
+    wrist_rotation:
+      _target_: dex_track.wrist_orientation_tracking
+      sigma: 0.3
+      weight: 0.15
+    tip:
+      _target_: dex_track.fingertip_tracking
+      sigma: 0.2
+      weight: 0.3
+    action:
+      _target_: dex_track.action_regularization
+      weight: -0.01
+termination:
+  object_tracking_error:
+    _target_: dex_track.object_tracking_error
+    threshold: 0.2
+    min_steps: 5
+  fingertip_tracking_error:
+    _target_: dex_track.fingertip_tracking_error
+    threshold: 0.2
+    warmup_steps: 15
+  robot_velocity_limit:
+    _target_: dex_track.robot_velocity_limit
+    max_lin_vel: 100.0
+    max_ang_vel: 200.0
+    max_joint_vel: 200.0
+  object_velocity_limit:
+    _target_: dex_track.object_velocity_limit
+    max_lin_vel: 100.0
+    max_ang_vel: 200.0
+  motion_end:
+    _target_: dex_track.motion_end

@@ -1,0 +1,10 @@
+{
+  "source_repo": "https://github.com/EGalahad/mimic-lite",
+  "source_commit": "eb49734391787f96698be791483de6acce03bd68",
+  "source_worktree_files_sha256": {
+    "scripts/train.py": "51b133de4ff7c24684daae3a55c850c8e0adb02a58eb4ff0c14b28f6ea667d4d",
+    "mimic_lite_learning/ppo.py": "1f9cbfb4cf8c8363af1be8ada77ac11ddb17f3960810a3380264dac4ef86d37b",
+    "mimic_lite_learning/common.py": "017d9a66e5221663fa5fa7168ff775e3b6a9f3e6ce9b42039acde067bba7bd72"
+  },
+  "notes": "Initialized from the locally validated PPO revision; project owns these copies. The source includes named action routing and configurable critic inputs beyond the upstream commit. Runtime uses no mimic-lite import."
+}

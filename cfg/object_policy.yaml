@@ -1,0 +1,23 @@
+# Training scene contract. Table and robot are not object slots.
+max_objects: 8
+slot_allocation: dataset_max_clip_object_count
+count_scope: episode_required_scene_objects
+overflow: error
+unknown_count: reject
+padding:
+  observation: masked_zero
+  reward: excluded
+  termination: excluded
+  physics: disabled
+  parking: below_table
+
+# Replay eligibility does not imply physical training eligibility.
+physics_scope:
+  supported: independent_rigid_bodies
+  exclude_requires: [deformation, cutting, fracture, material_removal, articulated_mechanism, screw_thread]
+  uncertain: review_before_training
+  pouring_goal: rigid_hand_object_pose_tracking_only
+excluded_motions:
+  scene_01__A001++seq__083f7a577484ba7929a9__2023-04-27-19-25-24__st00: cutting_and_deformation
+  scene_02__A007++seq__06d2f1c8ee39209ea62a__2023-05-15-19-37-06__st01: articulated_mechanism_and_material_removal
+  scene_01__A004++seq__4102ced88c60ebdf8023__2023-04-28-18-37-52__st00: screw_thread_constraint

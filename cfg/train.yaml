@@ -1,0 +1,37 @@
+defaults:
+  - task: tracking
+  - algo: dex_track_ppo
+  - _self_
+
+hydra:
+  run:
+    dir: ./outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}-${task.name}-${algo.name}
+  job:
+    chdir: true
+
+headless: true
+exp_name: dex-track
+backend: mjlab
+device: cuda:0
+app:
+  headless: ${..headless}
+  enable_cameras: false
+total_frames: 131072000
+total_iters: null
+checkpoint_interval: 250
+upload_interval: 250
+seed: 42
+checkpoint_path: null
+write_metrics_jsonl: true
+algo:
+  in_keys: [proprioception, scene, intent]
+  actor_in_keys: [proprioception, scene, intent]
+  critic_in_keys: [proprioception, scene, intent]
+  entropy_coef_start: 0.002
+  entropy_coef_end: 0.002
+wandb:
+  name: ${..exp_name}
+  job_type: train
+  project: aa-dex-track
+  mode: online
+  tags: []

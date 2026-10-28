@@ -1,0 +1,12 @@
+third_party/
+outputs/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.retarget-deps/
+# Local validation and historical experiment artifacts are not publication inputs.
+tests/
+EXPERIMENT.md
+scripts/check_*.py
+scripts/play-3000.sh
+scripts/plot_object_counts.py
