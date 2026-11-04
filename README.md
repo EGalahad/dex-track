@@ -1,7 +1,7 @@
 # Dex-Track
 
 XHand bimanual manipulation tracking on Active Adaptation/mjlab. The project owns
-its MDP terms and shared-PointNet PPO; it has no runtime dependency on mimic-lite
+its MDP terms, action routing and shared-PointNet PPO; it has no runtime dependency on mimic-lite
 or a local any4hdmi development checkout.
 
 ## Installation
