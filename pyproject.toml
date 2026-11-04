@@ -6,9 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "aa-dex-track"
 version = "0.1.0"
 requires-python = ">=3.11,<3.13"
-dependencies = ["active_adaptation", "any4hdmi @ git+https://github.com/EGalahad/any4hdmi.git@bf83602f36ff6fc9796367cfc2b707a2526e1a54", "manifold3d>=3.0,<4"]
+dependencies = ["active_adaptation", "manifold3d>=3.0,<4"]
 
 [project.optional-dependencies]
+mjlab = ["mjlab==1.6.0", "mujoco==3.11.0", "mujoco-warp==3.8.1", "warp-lang==1.12.0", "triton==3.6.0"]
 data = ["huggingface-hub", "coacd==1.0.10", "smplx==0.1.28", "scipy", "trimesh", "rtree"]
 
 [project.entry-points."active_adaptation.projects"]

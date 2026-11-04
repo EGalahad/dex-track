@@ -2,6 +2,11 @@
 from pathlib import Path
 import math
 import torch
+import runpy
+
+_STORAGE = runpy.run_path(str(Path(__file__).with_name("motion_storage.py")))
+load_motion_data = _STORAGE["load_motion_data"]
+resolve_motion_path = _STORAGE["resolve_motion_path"]
 
 
 def dataset_fps(raw):
@@ -20,8 +25,8 @@ def dataset_fps(raw):
 
 def validate_training_object_limit(path, max_objects=8, excluded_motions=None):
     """Check required episode objects, not the full recording's background list."""
-    path = Path(path).resolve()
-    data = torch.load(path, map_location='cpu', weights_only=False)
+    path = resolve_motion_path(path)
+    data = load_motion_data(path)
     names = data['motion_filename']
     ids = data.get('motion_scene_object_ids')
     if ids is None or len(ids) != len(names) or not data.get('scene_selection_provenance'):
@@ -40,8 +45,8 @@ def validate_training_object_limit(path, max_objects=8, excluded_motions=None):
 
 
 def validate_motion(path, action_dim=36, require_sim_assets=True):
-    path = Path(path).resolve()
-    data = torch.load(path, map_location="cpu", weights_only=False)
+    path = resolve_motion_path(path)
+    data = load_motion_data(path)
     fps = dataset_fps(data)
     lengths = data["motion_num_frames"]
     starts = data["length_starts"]
@@ -85,8 +90,8 @@ def validate_motion(path, action_dim=36, require_sim_assets=True):
 def load_scene_catalog(path):
     """Canonical packed scene; slot count is the dataset maximum, never a constant eight."""
     from scipy.spatial.transform import Rotation
-    path = Path(path).resolve()
-    raw = torch.load(path, map_location='cpu', weights_only=False)
+    path = resolve_motion_path(path)
+    raw = load_motion_data(path)
     dataset_fps(raw)
     counts = validate_training_object_limit(path)
     slots = max(counts)
@@ -149,26 +154,64 @@ def load_scene_catalog(path):
     if ((state['quat'].norm(dim=-1)[frame_mask]-1).abs()>1e-3).any():
         raise ValueError('Scene quaternions must be normalized wxyz')
     # Mesh layouts are fixed per environment; reset samples compatible clips only.
-    layouts, groups, clip_group = [], [], []
+    # train.py calls this preflight before AA chooses a backend. Importing the
+    # dex_track package here would register MDP modules and cache AA's terrain
+    # module with no backend selected, leaving the later terrain registry empty.
+    import runpy
+    support_contract = runpy.run_path(str(Path(__file__).with_name('supports.py')))
+    SCHEMA = support_contract['SCHEMA']
+    support_layout_key = support_contract['support_layout_key']
+    validate_supports = support_contract['validate_supports']
+    supports = raw.get('motion_scene_supports', [[] for _ in ids])
+    if len(supports) != len(ids):
+        raise ValueError('motion_scene_supports must have one list per motion (empty when absent)')
+    if 'motion_scene_supports' in raw and raw.get('meta', {}).get('scene_support_schema') != SCHEMA:
+        raise ValueError('Missing or unsupported meta.scene_support_schema')
+    for row in supports:
+        validate_supports(row)
+    layouts, layout_supports, group_keys, groups, clip_group = [], [], [], [], []
     for i in range(len(ids)):
-        key = tuple(zip(directories[i],scales[i]))
-        if key not in layouts:
-            layouts.append(key); groups.append([])
-        g = layouts.index(key); groups[g].append(i); clip_group.append(g)
+        objects = tuple(zip(directories[i],scales[i]))
+        key = (objects, support_layout_key(supports[i]))
+        if key not in group_keys:
+            group_keys.append(key); layouts.append(objects)
+            layout_supports.append(supports[i]); groups.append([])
+        g = group_keys.index(key); groups[g].append(i); clip_group.append(g)
     return dict(path=path, raw=raw, slots=slots, mask=mask, hand_slots=hand_slots,
                 directories=directories, scales=scales, state=state, layouts=layouts,
-                groups=groups, clip_group=clip_group)
+                groups=groups, clip_group=clip_group, supports=supports,
+                layout_supports=layout_supports)
 
 
-def configure_scene_slots(cfg):
+def configure_scene_slots(cfg, allow_play_subset=False):
     """Use AA's normal scene/MDP factories, sized from the selected dataset."""
     from omegaconf import OmegaConf
     catalog = load_scene_catalog(cfg.task.motion_file)
     groups = len(catalog['groups'])
+    if cfg.task.num_envs < groups and allow_play_subset:
+        selected_path = _STORAGE['select_play_subset'](catalog, int(cfg.task.num_envs), int(cfg.get('seed', 0)))
+        OmegaConf.set_struct(cfg, False)
+        cfg.task.motion_file = str(selected_path)
+        cfg.task.command.motion_file = str(selected_path)
+        catalog = load_scene_catalog(selected_path)
+        groups = len(catalog['groups'])
     if cfg.task.num_envs < groups:
         raise ValueError(f'Dataset has {groups} distinct object layouts; num_envs={cfg.task.num_envs} cannot represent each. Select a smaller dataset or increase num_envs.')
     OmegaConf.set_struct(cfg, False)
+    cfg.task.motion_file = str(catalog['path'])
+    cfg.task.command.motion_file = str(catalog['path'])
     cfg.task.objects = {f'object_{i}': {'_target_':'dex_track.scene_object',
         'motion_file':str(catalog['path']), 'slot':i} for i in range(catalog['slots'])}
+    collision_variant = cfg.task.robot.get('collision_variant', 'simplified')
+    for entry in cfg.task.objects.values():
+        entry['collision_variant'] = collision_variant
+    if cfg.task.robot.name == 'dex_track.xhand_free':
+        cfg.task.objects['left_hand'] = {'_target_':'dex_track.xhand_free', 'side':'left',
+            'finger_damping':cfg.task.robot.get('finger_damping',2.5), 'collision_variant':collision_variant}
+        if cfg.task.robot.get('palm_position_root') is not None:
+            cfg.task.objects['left_hand']['palm_position_root'] = cfg.task.robot.palm_position_root
+    if any(catalog['layout_supports']):
+        cfg.task.objects['support'] = {'_target_':'dex_track.scene_support',
+                                     'motion_file':str(catalog['path'])}
     print(f"Scene allocation: {catalog['slots']} object slots, {groups} mesh layouts, {len(catalog['mask'])} clips (table excluded)",flush=True)
     return catalog['slots']

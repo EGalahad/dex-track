@@ -1,0 +1,10 @@
+{
+  "package": "mujoco-warp",
+  "version": "3.8.1",
+  "files_sha256": {
+    "collision_driver.py": "8f0b4dde982c8fa3c675ae4544858a4c5ce29243611e0c0e54f1e8d9a857ed59",
+    "collision_convex.py": "38a4c7ee958797a709316813381e6478ba778c958ae4e06349b712c6ba3d5203",
+    "collision_gjk.py": "b91673337448db07a7e4ccda665d652a4eb84c2b9a770ed3b59d72c8818360b7"
+  },
+  "purpose": "pair-local convex coordinates, original GJK, mesh-id -1 guard"
+}

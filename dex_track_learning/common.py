@@ -3,11 +3,59 @@
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModuleBase
 from active_adaptation.learning.modules.vecnorm import VecNorm
 from active_adaptation.learning.ppo.common import ACTION_KEY
 import active_adaptation as aa
+
+OBJECT_PCD_KEY = "object_pcd"
+OBJECT_PCD_FEATURE_KEY = "_object_pcd_feature"
+
+
+class BimanualPointCloudEncoder(nn.Module):
+    """Shared point MLP, separate wrist-frame pooling in right/left hand order."""
+
+    def __init__(self, num_points=128, hidden_dims=(64, 128), input_is_scene=False):
+        super().__init__()
+        self.num_points = int(num_points)
+        self.input_is_scene = bool(input_is_scene)
+        if self.num_points < 1 or len(hidden_dims) != 2 or min(hidden_dims) < 1:
+            raise ValueError("Expected positive point count and two positive hidden widths")
+        self.point_mlp = nn.Sequential(
+            nn.Linear(3, hidden_dims[0]), nn.Mish(),
+            nn.Linear(hidden_dims[0], hidden_dims[1]), nn.Mish(),
+        )
+
+    def compile_pool(self):
+        # Keep checkpoint/optimizer parameter names stable and avoid CUDA graph pools.
+        self._pool = torch.compile(
+            self._pool, fullgraph=True, dynamic=True,
+            mode="max-autotune-no-cudagraphs")
+
+    def forward(self, points):
+        if self.input_is_scene:
+            points = points[..., -(2*self.num_points*3):]
+        if points.shape[-1] != 2 * self.num_points * 3:
+            raise ValueError("Expected two flattened wrist-frame point clouds")
+        prefix = points.shape[:-1]
+        points = points.reshape(-1, 2, self.num_points, 3)
+        # Recompute large PPO point activations in bounded chunks during backward.
+        # Samples remain independent; the optimizer still sees the full minibatch.
+        if torch.is_grad_enabled() and points.shape[0] > 1024:
+            features = torch.cat([
+                checkpoint(self._pool, chunk, use_reentrant=False)
+                for chunk in points.split(1024)
+            ], dim=0)
+        else:
+            features = self._pool(points)
+        return features.reshape(*prefix, features.shape[-1])
+
+    def _pool(self, points):
+        # Preserve wrist-relative translation and hand identity; pool only points.
+        return self.point_mlp(points).max(dim=-2).values.flatten(-2)
+
 
 class NullVecNorm(VecNorm):
     """Identity VecNorm that keeps the module/state interface intact."""
@@ -107,3 +155,26 @@ class ActorROA(nn.Module):
         )
         if self.load_noise_scale is not None:
             self.actor_std.data.fill_(self.load_noise_scale)
+
+
+class PreserveScenePointCloud(nn.Module):
+    """Normalize link features only; raw xyz tail stays in physical metres."""
+    def __init__(self, norm, point_width):
+        super().__init__()
+        self.norm, self.point_width = norm, point_width
+
+    def forward(self, scene):
+        return torch.cat((self.norm(scene[..., :-self.point_width]),
+                          scene[..., -self.point_width:]), -1)
+
+
+class SceneCatTensors(TensorDictModuleBase):
+    """Heads consume scene link features and encoded points, never raw xyz twice."""
+    def __init__(self, in_keys, out_key, point_width):
+        super().__init__()
+        self.in_keys, self.out_keys = list(in_keys), [out_key]
+        self.point_width = point_width
+
+    def forward(self, td):
+        parts = [td[k][..., :-self.point_width] if k == 'scene' else td[k] for k in self.in_keys]
+        return td.set(self.out_keys[0], torch.cat(parts, -1))

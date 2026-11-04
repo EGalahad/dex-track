@@ -1,0 +1,10 @@
+{
+  "published": false,
+  "hf_revision": null,
+  "reason": "support/ground cleanup remains staging; 212 motions quarantined",
+  "original_source_sha256": "2f3ce7b9200f7af8560cfd7ec58329b79e0a56e553c0fe5209fa271f9bf4b852",
+  "canonical_index_sha256": "8111f30cea2b835dee821aa3a54d56541e13f6ceb189066559f53a0a99c54aa8",
+  "training_storage": "dex-track-motion-folders-v1",
+  "topology_storage": "dex-track-topology-v1",
+  "physical_admission": false
+}

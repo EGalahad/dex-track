@@ -1,5 +1,6 @@
 """Independent termination terms using AA's update/reset/compute lifecycle."""
 import math
+import torch
 
 from active_adaptation.envs.mdp.terminations.base import Termination
 
@@ -13,11 +14,17 @@ TrackTermination = Termination[MotionTracking]
 class object_tracking_error(TrackTermination, namespace='dex_track'):
     """Any valid object's top-three point error exceeds threshold consecutively."""
 
-    def __init__(self, threshold=.2, min_steps=5, enabled=True):
+    def __init__(self, threshold=.2, min_steps=5, enabled=True, curriculum=None):
         super().__init__(enabled=enabled)
         if not math.isfinite(threshold) or threshold <= 0 or min_steps < 1 or int(min_steps) != min_steps:
             raise ValueError('Expected positive threshold and positive integer min_steps')
         self.threshold, self.min_steps = threshold, min_steps
+        self.curriculum = dict(curriculum or {})
+        if self.curriculum:
+            final = self.curriculum['final_threshold']
+            start, end = self.curriculum['start_fraction'], self.curriculum['end_fraction']
+            if not (math.isfinite(final) and 0 < final <= threshold and 0 <= start < end <= 1):
+                raise ValueError('Invalid object termination curriculum')
 
     def _initialize(self, env):
         super()._initialize(env)
@@ -27,6 +34,15 @@ class object_tracking_error(TrackTermination, namespace='dex_track'):
 
     def update(self):
         c = self.command_manager
+        threshold = self.threshold
+        if self.curriculum and self.env.training:
+            total = getattr(self.env, 'total_iters', None) or self.env.cfg.total_iters
+            progress = self.env.current_iter / total
+            start, end = self.curriculum['start_fraction'], self.curriculum['end_fraction']
+            alpha = min(1., max(0., (progress-start)/(end-start)))
+            threshold += alpha*(self.curriculum['final_threshold']-self.threshold)
+        self.exceed.threshold = threshold
+        self.env.extra['curriculum/object_tracking_threshold'] = threshold
         self.exceed.update(c.object_tracking_error(), c.scene_objects.mask)
 
     def reset(self, env_ids, tensordict=None):
@@ -35,19 +51,6 @@ class object_tracking_error(TrackTermination, namespace='dex_track'):
     def compute(self, termination):
         # Reading/logging a termination must never advance its counter.
         return (self.exceed.steps >= self.min_steps).any(-1, keepdim=True)
-
-
-class fingertip_tracking_error(TrackTermination, namespace='dex_track'):
-    """Largest MANO fingertip position error after the reset warmup."""
-
-    def __init__(self, threshold=.2, warmup_steps=15, enabled=True):
-        super().__init__(enabled=enabled)
-        self.threshold, self.warmup_steps = threshold, warmup_steps
-
-    def compute(self, termination):
-        c = self.command_manager
-        error = (c.robot_tip_pos_w - c.ref_mano_tip_pos_w).norm(dim=-1).amax(dim=(-1, -2))
-        return ((error > self.threshold) & (self.env.episode_length_buf > self.warmup_steps)).unsqueeze(-1)
 
 
 class robot_velocity_limit(TrackTermination, namespace='dex_track'):

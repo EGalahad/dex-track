@@ -45,6 +45,8 @@ def _start_iteration(checkpoint_path: str | None, current_iter: int) -> int:
 def main(cfg: DictConfig):
     OmegaConf.resolve(cfg)
     OmegaConf.set_struct(cfg, False)
+    from dex_track_learning.config import normalize_policy_config
+    normalize_policy_config(cfg.algo)
 
     # Validate the dataset before AA initializes a backend or constructs assets.
     preflight = runpy.run_path(str(FILE_PATH.parent / 'dex_track/data.py'))

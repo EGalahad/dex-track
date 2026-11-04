@@ -1,0 +1,10 @@
+numpy
+scipy
+trimesh
+mujoco>=3.3
+qpsolvers[daqp]
+cvxpy
+smplx==0.1.28
+coacd==1.0.10
+rtree
+scikit-learn

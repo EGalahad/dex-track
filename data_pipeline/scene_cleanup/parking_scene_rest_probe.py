@@ -1,0 +1,28 @@
+import os
+"""Retest failed unheld poses against all reference scene fixtures and supports."""
+from pathlib import Path
+code=Path(__file__).with_name('parking_process.py').read_text();exec(code.split('OUT.mkdir(exist_ok=True)')[0])
+pending_path=V/'additional-isolated-associated-object-candidates.json';pending_pairs={(v['index'],v['object']) for v in json.loads(pending_path.read_text())} if pending_path.exists() else set()
+O=T/'artifacts/parking-v1/scene-rest-probes';O.mkdir(exist_ok=True);results=[]
+for mi in range(704):
+ source=json.loads((T/'artifacts/parking-v1/settle'/f'{mi:04d}.json').read_text());ref=json.loads((T/'artifacts/parking-v1/refinement-rest-v3'/f'{mi:04d}.json').read_text());anchored={d['object_id'] for d in ref.get('objects',[]) if d.get('rest_anchor_policy_frames')};targets=[p for p in source['probes'] if p['object_id'] in anchored]
+ if not targets:continue
+ meta=json.loads((OUT/idx['motions'][mi]['path']).read_text());f=parked_frames(mi);oldids=[v['id'] for v in rows[mi]['objects']];lift=json.loads((T/'artifacts/parking-v1/motions'/f'{mi:04d}.json').read_text())['total_world_z_lift_m'];probes=[]
+ for p in targets:
+  oid=p['object_id'];ti=p['policy_frame'];pos=np.array(p['initial_qpos'][:3]);quat=p['initial_qpos'][3:7];scale=meta['motion_scene_object_scales'][0][meta['motion_scene_object_ids'][0].index(oid)];root=E.Element('mujoco');E.SubElement(root,'option',timestep='.002',gravity='0 0 -9.81',integrator='implicitfast');asset=E.SubElement(root,'asset');world=E.SubElement(root,'worldbody');E.SubElement(world,'geom',name='ground',type='plane',size='3 3 .01',friction='.5 .005 .0001');body=E.SubElement(world,'body',name='object',pos=' '.join(map(str,pos)),quat=' '.join(map(str,quat)));E.SubElement(body,'freejoint')
+  directory=S/'objects'/oid;solid=trimesh.load(directory/'visual.obj',force='mesh')
+  if not solid.is_watertight or solid.volume<=0:solid=trimesh.util.concatenate([trimesh.load(q,force='mesh') for q in sorted((directory/'convex').glob('*.obj'))])
+  solid.density=800.;raw=float(solid.mass);mass=min(max(raw,.05),.5);inertia=solid.moment_inertia*(mass/raw)*scale**2;E.SubElement(body,'inertial',pos=' '.join(map(str,solid.center_mass*scale)),mass=str(mass),fullinertia=' '.join(map(str,[inertia[0,0],inertia[1,1],inertia[2,2],inertia[0,1],inertia[0,2],inertia[1,2]])))
+  fixtures=[]
+  for j,(other,sc) in enumerate(zip(meta['motion_scene_object_ids'][0],meta['motion_scene_object_scales'][0])):
+   if other==oid:b=body;prefix='target'
+   else:
+    k=oldids.index(other);b=E.SubElement(world,'body',name=f'fixture{j}',pos=' '.join(map(str,f['object_pos'][ti,k]+[0,0,lift])),quat=' '.join(map(str,f['object_quat'][ti,k])));prefix=f'fixture{j}';fixtures.append(other)
+   for k,q in enumerate(sorted((D/'assets/collision_simplified/objects'/other/'convex').glob('*.obj'))):name=prefix+'_'+str(k);E.SubElement(asset,'mesh',name=name,file=str(q),scale=' '.join([str(sc)]*3));E.SubElement(b,'geom',name=name,type='mesh',mesh=name,friction='.5 .005 .0001',condim='3')
+  for k,s in enumerate(meta['motion_scene_supports'][0]):
+   g=s['geometry'];b=E.SubElement(world,'body',pos=' '.join(map(str,s['position'])),quat=' '.join(map(str,s['quaternion_wxyz'])));size=np.array(g['size'])/2 if g['type']=='box' else [g['radius'],g['height']/2];E.SubElement(b,'geom',name=f'support{k}',type=g['type'],size=' '.join(map(str,size)),friction='.5 .005 .0001',condim='3')
+  m=mj.MjModel.from_xml_string(E.tostring(root,encoding='unicode'));d=mj.MjData(m);mj.mj_forward(m,d);initial=d.qpos.copy();initialpairs=[dict(geom_names=[m.geom(int(g)).name for g in c.geom],depth_m=-float(c.dist)) for c in d.contact if c.dist<0];initialdepth=max([max(0.,-float(c.dist)) for c in d.contact] or [0.]);maxdepth=initialdepth;maxspeed=0.
+  for step in range(1500):mj.mj_step(m,d);maxspeed=max(maxspeed,float(np.linalg.norm(d.qvel[:3])));maxdepth=max(maxdepth,max([max(0.,-float(c.dist)) for c in d.contact] or [0.]))
+  displacement=float(np.linalg.norm(d.qpos[:3]-initial[:3]));angle=float((Rot.from_quat(initial[3:7][[1,2,3,0]]).inv()*Rot.from_quat(d.qpos[3:7][[1,2,3,0]])).magnitude());speed=float(np.linalg.norm(d.qvel[:3]));passed=displacement<.01 and angle<.1 and speed<.01 and maxdepth<.003;probes.append(dict(object_id=oid,compatibility_retained_inactive_object=(mi,oid) in pending_pairs,policy_frame=ti,passed=passed,position_displacement_m=displacement,rotation_change_rad=angle,final_speed_m_s=speed,initial_contact_depth_m=initialdepth,initial_penetrating_pairs=initialpairs,max_contact_depth_m=maxdepth,max_speed_m_s=maxspeed,fixture_ids=fixtures,initial_qpos=initial.tolist(),final_qpos=d.qpos.tolist(),scope='target dynamic, all other reference scene objects clamped, all supports fixed, no hands',dt_s=.002,duration_s=3.,mujoco_version=mj.__version__));print(mi,oid,passed,round(displacement,4),flush=True)
+ result=dict(index=mi,probes=probes,physical_admission=False);save(O/f'{mi:04d}.json',result);results.append(result);save(T/'artifacts/parking-v1/scene-rest-state.json',dict(completed_motions=len(results),pid=os.getpid(),heartbeat_unix=time.time()))
+summary=dict(scope_selection='all unheld stationary anchors, including object-only passed',retested_probes=sum(len(r['probes']) for r in results),failed_probes=sum(not p['passed'] for r in results for p in r['probes']),failed_compatibility_retained_inactive_objects=sum(not p['passed'] and p.get('compatibility_retained_inactive_object',False) for r in results for p in r['probes']),scope='clamped reference scene fixtures, target-only gravity; full dynamic policy still unverified',physical_admission=False);save(T/'artifacts/parking-v1/scene-rest-summary.json',summary);print(summary,flush=True)

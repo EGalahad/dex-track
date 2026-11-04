@@ -1,0 +1,142 @@
+{
+  "robot": {
+    "name": "xhand_left",
+    "hand_side": "left",
+    "xml": "../assets/xhand_left.xml",
+    "scene": "../assets/xhand_left_scene.xml",
+    "hand": {
+      "root_body": "left_palm_root",
+      "wrist_body": "left_wrist",
+      "fingers": [
+        {
+          "name": "thumb",
+          "links": [
+            "left_hand_thumb_bend_link",
+            "left_hand_thumb_rota_link1",
+            "left_hand_thumb_rota_link2"
+          ],
+          "joints": [
+            "left_hand_thumb_bend_joint",
+            "left_hand_thumb_rota_joint1",
+            "left_hand_thumb_rota_joint2"
+          ],
+          "tip_site": "track_hand_left_thumb_tip",
+          "keypoint_links": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "name": "index",
+          "links": [
+            "left_hand_index_bend_link",
+            "left_hand_index_rota_link1",
+            "left_hand_index_rota_link2",
+            "left_index_dip_proxy"
+          ],
+          "joints": [
+            "left_hand_index_bend_joint",
+            "left_hand_index_joint1",
+            "left_hand_index_joint2"
+          ],
+          "tip_site": "track_hand_left_index_tip",
+          "keypoint_links": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "name": "middle",
+          "links": [
+            "left_hand_mid_link1",
+            "left_hand_mid_link2",
+            "left_middle_dip_proxy"
+          ],
+          "joints": [
+            "left_hand_mid_joint1",
+            "left_hand_mid_joint2"
+          ],
+          "tip_site": "track_hand_left_middle_tip",
+          "keypoint_links": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "name": "ring",
+          "links": [
+            "left_hand_ring_link1",
+            "left_hand_ring_link2",
+            "left_ring_dip_proxy"
+          ],
+          "joints": [
+            "left_hand_ring_joint1",
+            "left_hand_ring_joint2"
+          ],
+          "tip_site": "track_hand_left_ring_tip",
+          "keypoint_links": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "name": "pinky",
+          "links": [
+            "left_hand_pinky_link1",
+            "left_hand_pinky_link2",
+            "left_pinky_dip_proxy"
+          ],
+          "joints": [
+            "left_hand_pinky_joint1",
+            "left_hand_pinky_joint2"
+          ],
+          "tip_site": "track_hand_left_pinky_tip",
+          "keypoint_links": [
+            0,
+            1,
+            2
+          ]
+        }
+      ],
+      "collision_excluded_links": [],
+      "selfcol_links": [
+        [
+          "left_hand_thumb_bend_link",
+          "left_hand_thumb_rota_link1",
+          "left_hand_thumb_rota_link2"
+        ],
+        [
+          "left_hand_index_bend_link",
+          "left_hand_index_rota_link1",
+          "left_hand_index_rota_link2"
+        ],
+        [
+          "left_hand_mid_link1",
+          "left_hand_mid_link2"
+        ],
+        [
+          "left_hand_ring_link1",
+          "left_hand_ring_link2"
+        ],
+        [
+          "left_hand_pinky_link1",
+          "left_hand_pinky_link2"
+        ]
+      ]
+    }
+  },
+  "motion": {
+    "data": ".",
+    "clip": "whiteboard"
+  },
+  "hand_solver": {
+    "point_mapping": {
+      "mcp_surrogate": "link1",
+      "thumb_cmc_surrogate": "link1"
+    }
+  }
+}

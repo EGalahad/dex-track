@@ -2,6 +2,7 @@
 import torch
 import trimesh
 from .reference.math import matrix_from_quat
+from .object_tracking_points import normalize_tracking_points
 
 
 class SceneObjects:
@@ -10,6 +11,7 @@ class SceneObjects:
         self.env = command.env
         self.device = command.device
         self.catalog = catalog
+        self.normalization_radius = command.object_tracking_radius
         self.count = self.catalog['slots']
         self.names = [f'object_{i}' for i in range(self.count)]
         self.mask_table = self.catalog['mask'].to(self.device)
@@ -17,6 +19,10 @@ class SceneObjects:
         self.state = command.dataset.objects
         self.groups = [torch.tensor(g,device=self.device) for g in self.catalog['groups']]
         self.env_groups = torch.arange(command.num_envs,device=self.device)%len(self.groups)
+        self._sample_group_sizes = torch.tensor(
+            [len(g) for g in self.groups], device=self.device, dtype=torch.long)
+        self._sample_group_offsets = self._sample_group_sizes.cumsum(0)-self._sample_group_sizes
+        self._sample_clips = torch.cat(self.groups)
         self.points = torch.zeros(len(self.mask_table),self.count,128,3,device=self.device)
         cache = {}
         for i,dirs in enumerate(self.catalog['directories']):
@@ -29,18 +35,18 @@ class SceneObjects:
                     p,_ = trimesh.sample.sample_surface(mesh,128,seed=0)
                     p = torch.as_tensor(p*scale,device=self.device,dtype=torch.float32)
                     cache[key] = p
-                self.points[i,slot] = cache[key]*(.058/cache[key].norm(dim=-1).max().clamp_min(1e-6))
+                self.points[i,slot] = normalize_tracking_points(cache[key], self.normalization_radius)
 
     @property
     def mask(self): return self.mask_table[self.c.motion_ids]
 
     def sample_ids(self, env_ids):
-        result = torch.empty_like(env_ids)
-        for group, clips in enumerate(self.groups):
-            selected = self.env_groups[env_ids] == group
-            n = int(selected.sum())
-            if n: result[selected] = clips[torch.randint(len(clips),(n,),device=self.device)]
-        return result
+        groups = self.env_groups[env_ids]
+        # Keep group-uniform sampling on the GPU instead of synchronizing once
+        # per layout. This preserves the distribution, not the old RNG sequence.
+        index = (torch.rand(env_ids.shape, device=self.device, dtype=torch.float64)
+                 * self._sample_group_sizes[groups]).long()
+        return self._sample_clips[self._sample_group_offsets[groups]+index]
 
     def ref(self, field):
         value = getattr(self.state, f'{field}_w')[self.c.frame_indices]
@@ -68,13 +74,18 @@ class SceneObjects:
         for slot,name in enumerate(self.names):
             self.env.scene[name].write_root_state_to_sim(values[:,slot],env_ids=env_ids)
 
-    def tracking_error(self):
+    def tracking_error(self, top_k=3):
+        return self.c.object_tracking_error(top_k)
+
+    def _compute_tracking_error(self, top_k=3):
+        if not isinstance(top_k, int) or isinstance(top_k, bool) or not 1 <= top_k <= self.points.shape[-2]:
+            raise ValueError("top_k must be an integer between 1 and the point count")
         points = self.points[self.c.motion_ids]
         dr = matrix_from_quat(self.ref('quat'))-matrix_from_quat(self.sim('quat'))
         dt = self.ref('pos')-self.sim('pos')
-        error = (dt[:,:,None]+torch.einsum('bsij,bspj->bspi',dr,points)).norm(dim=-1).topk(3).values.mean(-1)
+        error = (dt[:,:,None]+torch.einsum('bsij,bspj->bspi',dr,points)).norm(dim=-1).topk(top_k).values.mean(-1)
         return error
 
-    def reward(self, sigma=.1):
-        value = torch.exp(-self.tracking_error()/sigma)
+    def reward(self, sigma=.1, top_k=3):
+        value = torch.exp(-self.tracking_error(top_k=top_k)/sigma)
         return torch.where(self.mask,value,0.).sum(-1)/self.mask.sum(-1)

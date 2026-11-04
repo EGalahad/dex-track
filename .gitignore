@@ -1,12 +1,15 @@
-third_party/
-outputs/
 __pycache__/
-.pytest_cache/
+*.py[cod]
 *.egg-info/
-.retarget-deps/
-# Local validation and historical experiment artifacts are not publication inputs.
+.venv/
+outputs/
+experiments/
 tests/
-EXPERIMENT.md
-scripts/check_*.py
-scripts/play-3000.sh
-scripts/plot_object_counts.py
+third_party/
+.cache/
+*.pt
+*.npz
+*.npy
+*.mp4
+*.log
+MUJOCO_LOG.TXT

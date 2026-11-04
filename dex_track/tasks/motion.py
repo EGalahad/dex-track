@@ -1,14 +1,15 @@
 """Typed motion containers, following any4hdmi's TensorClass convention.
 
 Frames use the dataset's world axes, with an origin at zero. The command adds
-AA env origins to positions. Retargeted robot states live in a reset-only buffer.
+AA env origins to positions. Retargeted robot states live in the historical
+``reset`` buffer; optional finger tracking reads its same-time joint positions.
 """
 from dataclasses import dataclass
 import math
 
 import torch
 from tensordict import TensorClass
-from any4hdmi.dataset.interpolation import interpolate_qpos_qvel_packed_torch
+from .resampling import resample_packed
 from dex_track.data import dataset_fps
 from .reference.math import matrix_from_quat, quat_from_matrix
 
@@ -79,7 +80,7 @@ def _resample_containers(containers, lengths, source_fps, target_fps):
                 quaternion_slices.extend((i, i + 4) for i in range(start, widths[group], 4))
             schema.append((container_index, name, group, start, widths[group], value.shape[1:], is_rotation))
     qpos, qvel = [torch.cat(parts, -1) for parts in columns]
-    qpos, qvel, output_lengths = interpolate_qpos_qvel_packed_torch(
+    qpos, qvel, output_lengths = resample_packed(
         list(qpos.split(lengths)), list(qvel.split(lengths)),
         source_fps=source_fps, target_fps=target_fps,
         quaternion_slices=tuple(quaternion_slices))

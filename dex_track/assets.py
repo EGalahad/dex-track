@@ -55,54 +55,16 @@ def description():
 @lru_cache(None)
 def robot_model():
     import mujoco
-    return mujoco.MjModel.from_xml_path(str(source_root()/'assets/robot/xhand/bimanual.xml'))
+    spec = mujoco.MjSpec.from_file(str(source_root()/'assets/robot/xhand/bimanual.xml'))
+    _remove_palm_sites(spec)
+    return spec.compile()
 
 
-def xhand(backend, usd_path=None):
-    from active_adaptation.assets.asset_cfg import AssetCfg, ActuatorCfg, InitialStateCfg
-    cfg = AssetCfg(
-        mjcf_path=source_root()/'assets/robot/xhand/bimanual.xml',
-        usd_path=usd_path or '', init_state=InitialStateCfg(),
-        actuators={
-            'wrist': ActuatorCfg(joint_names_expr='[RL]_forearm_.*', effort_limit=100., velocity_limit=1000.,
-                                stiffness=0., damping=0., friction=0., armature=0.),
-            'fingers': ActuatorCfg(joint_names_expr='(right|left)_hand_.*', effort_limit=100., velocity_limit=1000.,
-                                  stiffness=20., damping=1.5, friction=0., armature=.1),
-        },
-        self_collisions=True,
-        joint_names_simulation=JOINT_NAMES_SIMULATION,
-    )
-    result = cfg.to_asset_spec(backend)
-    if backend == 'isaaclab':
-        if not usd_path or not Path(usd_path).is_file():
-            raise FileNotFoundError('Set task.robot.usd_path to the converted XHand USD')
-        result.config.spawn.rigid_props.disable_gravity = True
-        result.config.actuators["fingers"].damping = 2.5
-        result.config.spawn.collision_props.contact_offset = .002
-        result.config.soft_joint_pos_limit_factor = 1.
-    elif backend == 'mjlab':
-        from mjlab.utils.spec_config import CollisionCfg
-        result.config.articulation.soft_joint_pos_limit_factor = 1.
-        spec = result.config.spec_fn()
-        for actuator in list(spec.actuators):
-            spec.delete(actuator)
-        result.config.articulation.actuators = result.config.articulation.actuators[1:]
-        for body in spec.bodies:
-            body.gravcomp = 1.
-        for joint in spec.joints:
-            if 'forearm' in joint.name:
-                joint.damping[:] = 0.
-                joint.armature = 0.
-                joint.frictionloss = 0.
-        result.config.collisions = (CollisionCfg(
-            geom_names_expr=('collision_hand_.*',), priority=0, contype=1, conaffinity=1,
-            condim=3, friction=(.5, .005, .0001), disable_other_geoms=True),)
-    else:
-        raise ValueError(f'Unsupported backend: {backend}')
-    return result
-
-
-Registry.instance().register('asset', 'dex_track.xhand', xhand)
+def _remove_palm_sites(spec):
+    """Palm alignment is a mathematical transform, never a simulator site."""
+    for site in list(spec.sites):
+        if 'palm' in site.name.lower():
+            spec.delete(site)
 
 
 def body_name(name, backend):
@@ -136,16 +98,56 @@ def _spawn_isaac_padding(prim_path, cfg, translation=None, orientation=None, **k
     import isaaclab.sim as sim
     from isaacsim.core.utils import prims
     root = prims.create_prim(prim_path, 'Xform', translation=translation, orientation=orientation)
+    # MultiAssetSpawner replaces child collision_props with its top-level
+    # offsets. Preserve the absent object's no-collision contract explicitly.
+    cfg = cfg.replace(collision_props=sim.CollisionPropertiesCfg(collision_enabled=False))
     sim.spawn_cuboid(f'{prim_path}/baseLink', cfg, **kwargs)
     return root
 
 
-def scene_object(backend, motion_file, slot):
+def _spawn_isaac_support(prim_path, cfg, translation=None, orientation=None, **kwargs):
+    """USD spawners need an explicit physics-material binding on this Isaac version."""
+    import isaaclab.sim as sim
+    root = sim.spawn_from_usd(prim_path, cfg, translation=translation,
+                              orientation=orientation, **kwargs)
+    material = f'{prim_path}/supportMaterial'
+    sim.spawn_rigid_body_material(material, sim.RigidBodyMaterialCfg(
+        static_friction=.5, dynamic_friction=.5, restitution=0.))
+    sim.bind_physics_material(prim_path, material)
+    return root
+
+
+def scene_object(backend, motion_file, slot, collision_variant='simplified'):
     """One physical object slot, with per-environment mesh layouts owned by AA."""
     from dex_track.data import load_scene_catalog
     catalog = load_scene_catalog(motion_file)
     variants = [layout[slot] for layout in catalog['layouts']]
     base = Path(motion_file).resolve().parent
+    return _rigid_variants(backend, base, variants, staging_position=(3. * (slot + 1), 0., 10.), collision_variant=collision_variant)
+
+
+def scene_support(backend, motion_file):
+    """Fixed scene geometry from per-motion support poses; no tracking slots."""
+    from dex_track.data import load_scene_catalog
+    from dex_track.supports import support_asset_directory
+    catalog = load_scene_catalog(motion_file)
+    rows = catalog['layout_supports']
+    # mjlab's variant realization currently shares geom friction across worlds.
+    # Do not silently misrepresent per-motion friction in either backend.
+    if any(s['friction'] != .5 for row in rows for s in row):
+        raise ValueError('Scene support assets currently require friction=0.5')
+    variants = [(support_asset_directory(row), 1.) for row in rows]
+    return _rigid_variants(backend, Path(motion_file).resolve().parent, variants, fixed=True)
+
+
+def _rigid_variants(backend, base, variants, fixed=False, staging_position=(0., 0., 10.), collision_variant='simplified'):
+    if collision_variant not in ('original', 'simplified'):
+        raise ValueError(collision_variant)
+    if backend != 'mjlab' and collision_variant != 'original':
+        raise NotImplementedError('Simplified collision currently requires mjlab; do not silently use original USD')
+    # Keep uninitialized objects apart during the template mj_forward.
+    # Command reset overwrites these absolute free-root poses before physics.
+    position = (0., 0., 0.) if fixed else staging_position
     if backend == 'isaaclab':
         from isaaclab.assets import RigidObjectCfg
         import isaaclab.sim as sim
@@ -161,10 +163,15 @@ def scene_object(backend, motion_file, slot):
                 path = base/directory/'.isaac_usd/object.usd'
                 if not path.is_file(): raise FileNotFoundError(path)
                 spawns.append(sim.UsdFileCfg(usd_path=str(path),scale=(scale,)*3,
-                    rigid_props=sim.RigidBodyPropertiesCfg(disable_gravity=False)))
+                    rigid_props=sim.RigidBodyPropertiesCfg(disable_gravity=fixed, kinematic_enabled=fixed),
+                    **({'func': clone(_spawn_isaac_support),
+                        'collision_props': sim.CollisionPropertiesCfg(
+                          contact_offset=.002, rest_offset=0.)} if fixed else {})))
         spawn = spawns[0] if len(spawns)==1 else sim.MultiAssetSpawnerCfg(assets_cfg=spawns,random_choice=False)
+        if fixed:
+            spawn.collision_props = sim.CollisionPropertiesCfg(contact_offset=.002, rest_offset=0.)
         return RigidObjectCfg(prim_path='',spawn=spawn,
-            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.,0.,-10.)))
+            init_state=RigidObjectCfg.InitialStateCfg(pos=position))
     if backend == 'mjlab':
         import mujoco
         from mjlab.entity import EntityCfg
@@ -172,8 +179,9 @@ def scene_object(backend, motion_file, slot):
         def builder(directory, scale):
             def build():
                 spec=mujoco.MjSpec()
-                body=spec.worldbody.add_body(name='object')
-                body.add_freejoint(name='free')
+                body=spec.worldbody.add_body(name='object', pos=position)
+                if not fixed:
+                    body.add_freejoint(name='free')
                 if directory is None:
                     import trimesh
                     mesh=trimesh.creation.box(extents=(.001,)*3)
@@ -199,16 +207,90 @@ def scene_object(backend, motion_file, slot):
                                         inertia[0,1], inertia[0,2], inertia[1,2]]
                     for j,path in enumerate(parts):
                         name=f'part_{j}'
-                        spec.add_mesh(name=name,file=str(path),scale=[scale]*3)
+                        collision_path = simplified_object_collision(path) if collision_variant == 'simplified' else path
+                        spec.add_mesh(name=name,file=str(collision_path),scale=[scale]*3)
                         body.add_geom(name=name,type=mujoco.mjtGeom.mjGEOM_MESH,meshname=name,
                             density=800.,friction=[.5,.005,.0001],condim=3)
+                if fixed:
+                    # Missing variant mesh slots are excluded by the backend
+                    # before broadphase; no distant collision placeholders.
+                    body.mocap = True
+                    # Explicit fixed-body inertia also makes empty padding variants
+                    # compatible with real meshes during the authoring merge.
+                    body.mass = 1.
+                    body.ipos = [0.,0.,0.]
+                    body.fullinertia = [1.,1.,1.,0.,0.,0.]
                 return spec
             return build
-        init=EntityCfg.InitialStateCfg(pos=(0.,0.,-10.))
+        init=EntityCfg.InitialStateCfg(pos=position)
         if len(variants)==1:return EntityCfg(spec_fn=builder(*variants[0]),init_state=init)
-        return VariantEntityCfg(variants={f'layout_{i}':builder(*v) for i,v in enumerate(variants)},
+        variant_cls = VariantEntityCfg
+        if fixed:
+            from active_adaptation.envs.backends.mjlab.fixed_variants import FixedVariantEntityCfg
+            variant_cls = FixedVariantEntityCfg
+        return variant_cls(variants={f'layout_{i}':builder(*v) for i,v in enumerate(variants)},
             assignment=lambda n:[i%len(variants) for i in range(n)],init_state=init)
     raise ValueError(backend)
 
 
 Registry.instance().register('asset','dex_track.scene_object',scene_object)
+Registry.instance().register('asset','dex_track.scene_support',scene_support)
+
+
+def xhand_free(backend, side='right', finger_damping=2.5, usd_path=None, palm_position_root=None, collision_variant='simplified'):
+    """Independent wrist-root entity with pinned upstream inertial parameters."""
+    if backend != 'mjlab':
+        raise NotImplementedError('Integrated free-hand pair currently requires mjlab; Isaac assets are separately audited')
+    import mujoco
+    from active_adaptation.assets.asset_cfg import AssetCfg, ActuatorCfg, InitialStateCfg
+    from mjlab.utils.spec_config import CollisionCfg
+    cfg=AssetCfg(mjcf_path=Path(__file__).resolve().parents[1]/'assets/github_xhand'/f'{side}.xml',
+        usd_path='', init_state=InitialStateCfg(),
+        actuators={'fingers':ActuatorCfg(joint_names_expr=f'{side}_hand_.*',effort_limit=100.,
+            velocity_limit=1000.,stiffness=20.,damping=finger_damping,friction=0.,armature=.1)},
+        self_collisions=True)
+    result=cfg.to_asset_spec(backend)
+    spec=result.config.spec_fn()
+    _remove_palm_sites(spec)
+    if collision_variant not in ('original', 'simplified'):
+        raise ValueError(collision_variant)
+    if collision_variant == 'simplified':
+        import json
+        root = Path(__file__).resolve().parents[1]/'assets/collision_simplified'
+        mapping = json.loads((root/'explicit-mesh-map.json').read_text())['hands']
+        for geom in spec.geoms:
+            if not geom.name.startswith('collision_hand_'):
+                continue
+            original = geom.meshname
+            name = 'simplified_'+original
+            if spec.mesh(name) is None:
+                spec.add_mesh(name=name, file=str(root/mapping[original]))
+            geom.meshname = name
+    if palm_position_root is not None:
+        import numpy as np
+        position = np.asarray(palm_position_root[side], dtype=float)
+        if position.shape != (3,) or not np.isfinite(position).all():
+            raise ValueError('palm_position_root must contain finite xyz for each hand')
+        # Validated metadata only: command applies semantic alignment, no sites.
+    for a in list(spec.actuators):spec.delete(a)
+    for b in spec.bodies:b.gravcomp=1.
+    result.config.articulation.soft_joint_pos_limit_factor=1.
+    result.config.collisions=(CollisionCfg(geom_names_expr=('collision_hand_.*',),priority=0,
+        contype=1,conaffinity=1,condim=3,friction=(.5,.005,.0001),disable_other_geoms=True),)
+    if side=='right':
+        from dex_track.free_hands import InstallHandPair
+        result.wrapper=InstallHandPair()
+    return result
+
+Registry.instance().register('asset','dex_track.xhand_free',xhand_free)
+
+
+def simplified_object_collision(path):
+    # Preserve original visual/inertial assets and each independent convex piece.
+    root = Path(__file__).resolve().parents[1]/'assets/collision_simplified'
+    if '/objects/' not in str(path):
+        raise ValueError(f'Object collision path lacks stable object identity: {path}')
+    target = root/'objects'/str(path).split('/objects/', 1)[1]
+    if not target.is_file():
+        raise FileNotFoundError(f'Missing verified simplified collision: {target}')
+    return target

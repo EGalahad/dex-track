@@ -1,0 +1,12 @@
+{
+  "source_repo": "https://github.com/EGalahad/any4hdmi",
+  "source_file": "src/any4hdmi/dataset/interpolation.py",
+  "validated_source_file_sha256": "e48fe72f9395310f4e0efed612b1bfb165b9934462cf1dbbdd0afbed99be7b12",
+  "functions": [
+    "_packed_interp_plan_torch",
+    "_packed_slerp_by_indices_torch",
+    "interpolate_qpos_qvel_packed_torch",
+    "resampled_length"
+  ],
+  "change": "Explicit quaternion slices; unused MuJoCo-model inference branch removed"
+}

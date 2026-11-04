@@ -1,7 +1,7 @@
 """Optional fusion of pure tensor math; simulator reads/writes stay with callers."""
 import os
 import torch
-from dex_track.tasks.wrist_math import rotate, multiply, pd_wrench, limit_norm
+from dex_track.tasks.wrist_math import rotate, multiply, pd_wrench
 
 
 def select_kernel(env, function):
@@ -34,13 +34,3 @@ def site_kinematics(p, q, v, omega, site_p, site_q):
 def wrist_wrench(p, q, v, omega, com_p, target_p, target_q, desired_v, desired_w, gains):
     force, torque = pd_wrench(p, q, v, omega, target_p, target_q, desired_v, desired_w, *gains)
     return force, torque - torch.linalg.cross(com_p - p, force)
-
-
-def object_wrench(p, q, v, omega, com_p, target_p, target_q, target_v, target_w,
-                  mass, weight, gains, gravity_compensation):
-    force, torque = pd_wrench(p, q, v, omega, target_p, target_q, target_v, target_w, *gains)
-    torque = torque - torch.linalg.cross(com_p - p, force)
-    if gravity_compensation:
-        force = force.clone()
-        force[:, 2:3] += mass * 9.81
-    return limit_norm(force, gains[-2]) * weight, limit_norm(torque, gains[-1]) * weight

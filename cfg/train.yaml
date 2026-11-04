@@ -1,14 +1,12 @@
 defaults:
-  - task: tracking
-  - algo: dex_track_ppo
-  - _self_
-
+- task: tracking
+- algo: dex_track_ppo
+- _self_
 hydra:
   run:
     dir: ./outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}-${task.name}-${algo.name}
   job:
     chdir: true
-
 headless: true
 exp_name: dex-track
 backend: mjlab
@@ -17,18 +15,81 @@ app:
   headless: ${..headless}
   enable_cameras: false
 total_frames: 131072000
-total_iters: null
-checkpoint_interval: 250
-upload_interval: 250
+total_iters: 4000
+checkpoint_interval: 100
+upload_interval: 100
 seed: 42
 checkpoint_path: null
 write_metrics_jsonl: true
 algo:
-  in_keys: [proprioception, scene, intent]
-  actor_in_keys: [proprioception, scene, intent]
-  critic_in_keys: [proprioception, scene, intent]
+  _target_: dex_track_learning.ppo.PPOConfig
+  name: dex_track_ppo
+  train_every: 32
+  store_transitions: false
+  ppo_epochs: 5
+  num_minibatches: 8
+  clip_param: 0.2
+  gamma: 0.99
+  lmbda: 0.95
+  lr: 0.0003
+  desired_kl: 0.01
+  desired_kl_end: 0.005
+  tail_kl_lr_control: true
+  kl_lr_high_threshold_ratio: 2.0
+  epoch_kl_early_stop: false
+  opt: muon
+  compile: false
+  compile_rollout: false
+  compile_train_modules: false
   entropy_coef_start: 0.002
   entropy_coef_end: 0.002
+  entropy_decay_start: 0.75
+  entropy_decay_end: 1.0
+  init_noise_scale: 1.0
+  load_noise_scale: null
+  clip_neg_reward: false
+  normalize_before_sum: false
+  layer_norm: before
+  value_norm: false
+  actor_hidden_dims:
+  - 1024
+  - 512
+  - 512
+  critic_hidden_dims:
+  - 1024
+  - 512
+  - 512
+  max_grad_norm: 4.0
+  in_keys:
+  - proprioception
+  - scene
+  - intent
+  actor_in_keys:
+  - proprioception
+  - scene
+  - intent
+  critic_in_keys:
+  - proprioception
+  - scene
+  - intent
+  vecnorm: true
+  grad_sync_mode: ddp
+  ddp_bucket_cap_mb: 4.0
+  ddp_gradient_as_bucket_view: true
+  manual_construct_dist_now: true
+  value_chunk_size: 2048
+  rollout_amp_dtype: null
+  train_amp_dtype: bf16
+  grad_accum_steps: 1
+  log_std_gradients: true
+  use_pointnet: true
+  pcd_num_points: 128
+  pcd_hidden_dims:
+  - 64
+  - 128
+  pcd_lr: 0.0003
+  compile_pointnet: true
+  pcd_in_scene: true
 wandb:
   name: ${..exp_name}
   job_type: train

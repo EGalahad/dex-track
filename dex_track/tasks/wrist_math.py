@@ -43,19 +43,3 @@ def pd_wrench(p, q, v, omega, target_p, target_q, desired_v, desired_omega,
     force = kp_pos * (target_p - p) + kd_pos * (desired_v - v)
     torque = kp_rot * log(multiply(target_q, inverse(q))) + kd_rot * (desired_omega - omega)
     return limit_norm(force, max_force), limit_norm(torque, max_torque)
-
-
-def zxy_joint_angles(q, near):
-    """Inverse Rz(z) Rx(x) Ry(-y), nearest Euler branch; telemetry/BC only."""
-    w, a, b, c = q.unbind(-1)
-    r01, r11 = 2*(a*b-w*c), 1-2*(a*a+c*c)
-    r21 = 2*(b*c+w*a)
-    r20, r22 = 2*(a*c-w*b), 1-2*(a*a+b*b)
-    x = torch.asin(r21.clamp(-1, 1))
-    z, y = torch.atan2(-r01, r11), torch.atan2(r20, r22)
-    first = torch.stack((z, x, y), -1)
-    second = torch.stack((z+torch.pi, torch.pi-x, y-torch.pi), -1)
-    candidates = torch.stack((first, second), -2)
-    candidates = near.unsqueeze(-2) + torch.remainder(candidates-near.unsqueeze(-2)+torch.pi, 2*torch.pi)-torch.pi
-    idx = (candidates-near.unsqueeze(-2)).square().sum(-1).argmin(-1)
-    return candidates.gather(-2, idx[..., None, None].expand(*idx.shape, 1, 3)).squeeze(-2)

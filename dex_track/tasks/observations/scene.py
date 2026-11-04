@@ -38,13 +38,13 @@ def associated_surface_points(command, n_points):
                               world-command.robot_wrist_pos_w[:,:,None])
 
 
-def nearest_surface_points(links, points):
-    """Per-link [nearest surface xyz, unsigned Euclidean distance]."""
+def nearest_surface_points(links, points, relative_to_link=False):
+    """Per-link [nearest xyz or link-to-surface delta in wrist axes, distance]."""
     distances = torch.cdist(links,points,compute_mode='donot_use_mm_for_euclid_dist')
     ids = distances.argmin(-1)
     closest = points.gather(-2,ids[...,None].expand(*ids.shape,3))
     distance = (closest-links).norm(dim=-1,keepdim=True)
-    return torch.cat((closest,distance),-1)
+    return torch.cat((closest-links if relative_to_link else closest,distance),-1)
 
 
 class object_surface_points_wrist(TrackObservation, namespace='dex_track'):
@@ -58,6 +58,10 @@ class object_surface_points_wrist(TrackObservation, namespace='dex_track'):
 
 
 class link_nearest_surface_wrist(object_surface_points_wrist, namespace='dex_track'):
+    def __init__(self, n_points=128, relative_to_link=False):
+        super().__init__(n_points)
+        self.relative_to_link = bool(relative_to_link)
+
     def _initialize(self,env):
         super()._initialize(env)
         self.asset = env.scene['robot']
@@ -70,4 +74,4 @@ class link_nearest_surface_wrist(object_surface_points_wrist, namespace='dex_tra
         links = self.asset.data.body_link_pos_w[:,self.body_ids]
         links = quat_apply_inverse(c.robot_wrist_quat_w[:,:,None].expand(-1,-1,links.shape[2],-1),
                                    links-c.robot_wrist_pos_w[:,:,None])
-        return nearest_surface_points(links,associated_surface_points(c,self.n_points)).flatten(1)
+        return nearest_surface_points(links,associated_surface_points(c,self.n_points),self.relative_to_link).flatten(1)
