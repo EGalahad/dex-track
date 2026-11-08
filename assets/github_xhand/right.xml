@@ -4,7 +4,7 @@
   <default>
     <geom density="800" condim="1" contype="0" conaffinity="0" />
     <position kp="20" kv="1.5" forcelimited="true" forcerange="-100 100" inheritrange="1" />
-    <joint damping="1.0" armature="0.1" frictionloss="0.0" />
+    <joint damping="1.0" armature="0.01" frictionloss="0.0" />
     <site size="0.005" type="sphere" rgba="1 0 0 1" group="3" />
   </default>
 

@@ -246,7 +246,10 @@ def xhand_free(backend, side='right', finger_damping=2.5, usd_path=None, palm_po
     from mjlab.utils.spec_config import CollisionCfg
     cfg=AssetCfg(mjcf_path=Path(__file__).resolve().parents[1]/'assets/github_xhand'/f'{side}.xml',
         usd_path='', init_state=InitialStateCfg(),
-        actuators={'fingers':ActuatorCfg(joint_names_expr=f'{side}_hand_.*',effort_limit=100.,
+        # mode='explicit' maps to mjlab BuiltinPdActuatorCfg: native <position> (kp) + <velocity> (kd) pair, so the
+        # PD tracks both the position target and the velocity target (kd*(v_target - v)); effort is a sum-clamp.
+        # 'implicit' (BuiltinPositionActuator) would silently ignore velocity targets.
+        actuators={'fingers':ActuatorCfg(joint_names_expr=f'{side}_hand_.*',mode='explicit',effort_limit=100.,
             velocity_limit=1000.,stiffness=20.,damping=finger_damping,friction=0.,armature=.01)},
         self_collisions=True)
     result=cfg.to_asset_spec(backend)
@@ -273,6 +276,11 @@ def xhand_free(backend, side='right', finger_damping=2.5, usd_path=None, palm_po
             raise ValueError('palm_position_root must contain finite xyz for each hand')
         # Validated metadata only: command applies semantic alignment, no sites.
     for a in list(spec.actuators):spec.delete(a)
+    # The XML <default><position kp kv forcerange/> would leak into every actuator mjlab adds later: the BuiltinPd
+    # <velocity> element would inherit biasprm[1]=-kp (an extra, target-free stiffness toward q=0). Neutralize it.
+    act_default=spec.default.actuator
+    act_default.gainprm[:]=0.;act_default.gainprm[0]=1.;act_default.biasprm[:]=0.
+    act_default.forcelimited=mujoco.mjtLimited.mjLIMITED_AUTO;act_default.forcerange[:]=0.
     for b in spec.bodies:b.gravcomp=1.
     result.config.articulation.soft_joint_pos_limit_factor=1.
     result.config.collisions=(CollisionCfg(geom_names_expr=('collision_hand_.*',),priority=0,

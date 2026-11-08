@@ -18,10 +18,19 @@ Runtime / training changes only (data-pipeline work omitted).
   (`omega` / `zeta`) over the same nominal + `action_scale` finger action space.
 - `HandPair.set_joint_velocity_target` so the reference model can feed PD
   velocity targets.
-- New task cfg `cfg/task/trackingJRM.yaml` (`task=trackingJRM`) switches fingers
-  to that action (`omega: 20`, `zeta: 1`).
-- Tracking baseline: finger armature `0.1 → 0.01`; added `joint_acc_l2` /
-  `joint_vel_l2` regularization terms on finger joints.
+- `task=tracking` and `task=tracking_topology` both use that action for the
+  fingers (`omega: 20`, `zeta: 1`); the separate `trackingJRM` task is removed.
+- Finger actuators are now mjlab `BuiltinPdActuator` (`ActuatorCfg(mode='explicit')`:
+  native `<position>` kp + `<velocity>` kd, effort as a ±100 sum-clamp), so PD
+  velocity targets are applied (the previous `<position>` actuator ignored
+  them). With a zero velocity target the dynamics equal the old actuator
+  bit-for-bit. The XML `<default><position>` class is neutralised in
+  `xhand_free` so the added `<velocity>` elements do not inherit `kp` as an
+  extra bias stiffness.
+- Finger armature `0.1 → 0.01` everywhere (ActuatorCfg and the XML joint
+  default); passive joint damping 1.0 and actuator Kd 2.5 unchanged.
+- Added `joint_acc_l2` / `joint_vel_l2` regularization terms on finger joints
+  (`task=tracking`).
 
 ### Tools
 - `scripts/visualize_motion.py`: Viser reference-motion viewer with motion

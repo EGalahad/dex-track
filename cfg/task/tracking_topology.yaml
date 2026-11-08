@@ -53,7 +53,7 @@ input:
     max_torque: 10.0
     desired_velocity_feedforward: false
   finger:
-    _target_: dex_track.FingerNominalPosition
+    _target_: dex_track.FingerNominalReferenceModel
     nominal:
       right_hand_index_bend_joint: 0.0
       right_hand_index_joint1: 0.55
@@ -80,6 +80,9 @@ input:
       left_hand_thumb_rota_joint1: 0.4
       left_hand_thumb_rota_joint2: 0.35
     action_scale: 1.0
+    # second-order reference prefilter on the finger PD targets (position + velocity)
+    omega: 20.0
+    zeta: 1.0
 command:
   _target_: dex_track.TopologyMotionTracking
   motion_file: ${task.motion_file}
