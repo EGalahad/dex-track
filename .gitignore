@@ -13,3 +13,8 @@ third_party/
 *.mp4
 *.log
 MUJOCO_LOG.TXT
+
+# Absolute-path convenience links into data_pipeline/assets (machine-local;
+# canonical copies already live under data_pipeline/assets/).
+data_pipeline/solver/toporetarget/assets/meshes
+data_pipeline/solver/toporetarget/assets/xhand_*.xml

@@ -43,6 +43,9 @@ class HandPair:
     def set_joint_position_target(self, target, joint_ids=None, env_ids=None):
         for e,cols,ids in self._split(joint_ids,'joint'):
             e.set_joint_position_target(target[:,cols],joint_ids=ids,env_ids=env_ids)
+    def set_joint_velocity_target(self, target, joint_ids=None, env_ids=None):
+        for e,cols,ids in self._split(joint_ids,'joint'):
+            e.set_joint_velocity_target(target[:,cols],joint_ids=ids,env_ids=env_ids)
     def write_joint_state_to_sim(self,pos,vel,joint_ids=None,env_ids=None):
         for e,cols,ids in self._split(joint_ids,'joint'):
             e.write_joint_state_to_sim(pos[:,cols],vel[:,cols],joint_ids=ids,env_ids=env_ids)

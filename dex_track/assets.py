@@ -247,7 +247,7 @@ def xhand_free(backend, side='right', finger_damping=2.5, usd_path=None, palm_po
     cfg=AssetCfg(mjcf_path=Path(__file__).resolve().parents[1]/'assets/github_xhand'/f'{side}.xml',
         usd_path='', init_state=InitialStateCfg(),
         actuators={'fingers':ActuatorCfg(joint_names_expr=f'{side}_hand_.*',effort_limit=100.,
-            velocity_limit=1000.,stiffness=20.,damping=finger_damping,friction=0.,armature=.1)},
+            velocity_limit=1000.,stiffness=20.,damping=finger_damping,friction=0.,armature=.01)},
         self_collisions=True)
     result=cfg.to_asset_spec(backend)
     spec=result.config.spec_fn()

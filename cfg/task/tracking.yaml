@@ -215,6 +215,9 @@ reward:
       component: orientation
       enabled: true
   regularization:
+    # all finger joints
+    joint_acc_l2:       {weight: 2.5e-7, joint_names: .*hand_.*_joint.*}
+    joint_vel_l2:       {weight: 0.001, joint_names: .*hand_.*_joint.*}
     joint_limits:
       _target_: dex_track.finger_joint_pos_limits
       soft_factor: 0.9

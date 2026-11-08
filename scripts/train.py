@@ -3,7 +3,6 @@ import sys
 import runpy
 import torch
 import hydra
-import wandb
 import json
 import logging
 import time
@@ -22,6 +21,7 @@ from tensordict import TensorDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import dex_track_learning
+from dex_track_learning.experiment_run import init_experiment_run, upload_checkpoints_enabled
 import active_adaptation as aa
 from active_adaptation.utils.profiling import ScopedTimer
 from active_adaptation.learning.ppo.ppo_base import PPOBase
@@ -103,23 +103,25 @@ def main(cfg: DictConfig):
     ]
     episode_stats = EpisodeStats(stats_keys, device=env.device)
 
-    def save(policy, checkpoint_name: str, *, upload_to_wandb: bool = True):
+    def save(policy, checkpoint_name: str, *, upload_checkpoint: bool = True):
         assert run is not None
         run_dir = Path(run.dir)
         stage_dir = Path.cwd()
-        upload_to_wandb = upload_to_wandb and cfg.wandb.get("upload_checkpoints", True)
-        # Keep private models outside the directory managed by W&B file sync.
-        checkpoint_dir = run_dir if cfg.wandb.get("upload_checkpoints", True) else stage_dir / "checkpoints"
+        store_in_run = upload_checkpoints_enabled(cfg)
+        upload_checkpoint = upload_checkpoint and store_in_run
+        # Keep private models outside the logger-managed files directory when disabled.
+        checkpoint_dir = run_dir if store_in_run else stage_dir / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = checkpoint_dir / f"{checkpoint_name}.pt"
         state_dict = OrderedDict()
         state_dict["wandb"] = {"name": run.name, "id": run.id}
+        state_dict["run"] = {"name": run.name, "id": run.id, "backend": run.backend}
         state_dict["policy"] = policy.state_dict()
         state_dict["env"] = env.state_dict()
         state_dict["cfg"] = cfg
 
         torch.save(state_dict, ckpt_path)
-        if upload_to_wandb:
+        if upload_checkpoint:
             run.save(str(ckpt_path), policy="now", base_path=run.dir)
 
         latest_link = checkpoint_dir / "checkpoint_latest.pt"
@@ -132,7 +134,8 @@ def main(cfg: DictConfig):
             stage_latest_link.unlink()
         stage_latest_link.symlink_to(ckpt_path.resolve())
         logging.info(
-            f"Saved checkpoint to {ckpt_path}" + (" (wandb)" if upload_to_wandb else "")
+            f"Saved checkpoint to {ckpt_path}"
+            + (f" ({run.backend})" if upload_checkpoint else "")
         )
         return str(ckpt_path)
 
@@ -174,36 +177,27 @@ def main(cfg: DictConfig):
 
     metrics_path = None
     if aa.is_main_process():
-        run = wandb.init(
-            job_type=cfg.wandb.job_type,
-            project=cfg.wandb.project,
-            mode=cfg.wandb.mode,
-            tags=cfg.wandb.tags,
-            id=cfg.wandb.get("id", None),
-            settings=wandb.Settings(
-                ignore_globs=["*.pt", "*.pth", "*.onnx", "*.npz", "*.npy"]
-                if not cfg.wandb.get("upload_checkpoints", True)
-                else []
-            ),
-        )
-        run.config.update(OmegaConf.to_container(cfg))
-        run.config["world_size"] = aa.get_world_size()
-
+        run = init_experiment_run(cfg)
         default_run_name = (
             f"{cfg.exp_name}-{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')}"
         )
-        run_idx = run.id if run.name is None else run.name.split("-")[-1]
-        run.name = f"{run_idx}-{default_run_name}"
-        setproctitle(run.name)
-
+        # Trackio locks the experiment name at init; set it before touching run.dir.
+        run.name = f"{run.id[:8]}-{default_run_name}"
         run_dir = Path(run.dir)
         run_dir.mkdir(parents=True, exist_ok=True)
+        if run.backend == "wandb":
+            run.name = f"{run.id[:8]}-{default_run_name}"
+        run.config.update(OmegaConf.to_container(cfg))
+        run.config["world_size"] = aa.get_world_size()
+        setproctitle(run.name)
         cfg_save_path = run_dir / "cfg.yaml"
         OmegaConf.save(cfg, cfg_save_path)
         run.save(str(cfg_save_path), policy="now")
-        run.save(str(run_dir / "config.yaml"), policy="now")
 
-        if cfg.wandb.mode == "disabled" or cfg.get("write_metrics_jsonl", False):
+        logger_mode = str(
+            (cfg.logger.mode if cfg.get("logger") is not None else cfg.wandb.mode)
+        )
+        if logger_mode == "disabled" or cfg.get("write_metrics_jsonl", False):
             hydra_output_dir = Path(HydraConfig.get().runtime.output_dir)
             hydra_output_dir.mkdir(parents=True, exist_ok=True)
             metrics_path = hydra_output_dir / "metrics.jsonl"
@@ -243,7 +237,7 @@ def main(cfg: DictConfig):
                 checkpoint_name = (
                     f"checkpoint_{i}" if should_upload else "checkpoint_temp"
                 )
-                ckpt_path = save(policy, checkpoint_name, upload_to_wandb=should_upload)
+                ckpt_path = save(policy, checkpoint_name, upload_checkpoint=should_upload)
                 if ckpt_path is not None:
                     print(f"Latest checkpoint: {ckpt_path}")
 
@@ -341,7 +335,7 @@ def main(cfg: DictConfig):
         #     env, policy_eval, render=cfg.eval_render, seed=cfg.seed
         # )
         # run.log(info)
-        wandb.finish()
+        run.finish()
         print(f"Final checkpoint: {ckpt_path}")
     exit(0)
 

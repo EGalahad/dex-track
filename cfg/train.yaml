@@ -90,9 +90,20 @@ algo:
   pcd_lr: 0.0003
   compile_pointnet: true
   pcd_in_scene: true
+# Prefer Trackio local logging until AA v0.8.2 logger merge. Override with
+# logger.backend=wandb to keep the previous W&B path.
+logger:
+  backend: trackio
+  project: aa-dex-track
+  mode: offline
+  job_type: train
+  tags: []
+  space_id: null
+  upload_checkpoints: true
 wandb:
   name: ${..exp_name}
   job_type: train
   project: aa-dex-track
-  mode: online
+  mode: disabled
   tags: []
+  upload_checkpoints: true
