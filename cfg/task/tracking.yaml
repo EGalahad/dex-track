@@ -1,5 +1,6 @@
 # @package task
-# Current baseline: run67 (zipooy25): rot D=.3, pos PD350/25, world velocity rewards, plus current wrist-frame PD target controller state.
+# Baseline tracking task: coarse/fine object + object-velocity rewards (formerly tracking_ov),
+# finger second-order reference-model action.
 name: dex-track
 project: dex_track
 observe_on_reset: true
@@ -87,25 +88,58 @@ command:
   motion_file: ${task.motion_file}
   sampling: uniform
   object_tracking_radius: 0.4
-  palm_position_root: ${task.palm_position_root}
+  palm_position_root:
+    right:
+    - 0.008
+    - 0.001
+    - -0.023
+    left:
+    - 0.008
+    - -0.001
+    - -0.023
 observation:
   proprioception:
     wrist_projected_gravity:
       _target_: dex_track.wrist_projected_gravity
-      history_steps: [0, 1, 2, 3, 4]
+      history_steps:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
     wrist_velocity:
       _target_: dex_track.wrist_velocity
       local_frame: true
-      history_steps: [0, 1, 2, 3, 4]
+      history_steps:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
     joint_pos:
       _target_: dex_track.finger_joint_pos
-      history_steps: [0, 1, 2, 3, 4]
+      history_steps:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
     joint_vel:
       _target_: dex_track.finger_joint_vel
-      history_steps: [0, 1, 2, 3, 4]
+      history_steps:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
     previous_action:
       _target_: dex_track.previous_action
-      history_steps: [0, 1, 2, 3, 4]
+      history_steps:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
     wrist_controller_state:
       _target_: dex_track.wrist_controller_state
   scene:
@@ -163,7 +197,7 @@ reward:
     object:
       _target_: dex_track.object_tracking
       sigma: 0.2
-      weight: 2.0
+      weight: 1.0
       top_k: 3
     distance:
       _target_: dex_track.tip_object_distance
@@ -181,22 +215,22 @@ reward:
     wrist_linear_velocity:
       _target_: dex_track.wrist_linear_velocity_tracking
       enabled: true
-      sigma: 0.1  # m/s, MANO wrist site in world axes
+      sigma: 0.1
       weight: 0.25
     wrist_angular_velocity:
       _target_: dex_track.wrist_angular_velocity_tracking
       enabled: true
-      sigma: 1.0  # rad/s, world axes
+      sigma: 1.0
       weight: 0.25
     finger_linear_velocity:
       _target_: dex_track.finger_linear_velocity_tracking
       enabled: true
-      sigma: 0.1  # m/s, retarget link origins in world axes
+      sigma: 0.1
       weight: 0.25
     finger_angular_velocity:
       _target_: dex_track.finger_angular_velocity_tracking
       enabled: true
-      sigma: 1.0  # rad/s, world axes
+      sigma: 1.0
       weight: 0.25
     tip:
       _target_: dex_track.fingertip_tracking
@@ -217,6 +251,21 @@ reward:
       reference: retarget
       component: orientation
       enabled: true
+    object_fine:
+      _target_: dex_track.object_tracking
+      sigma: 0.04
+      weight: 1.0
+      top_k: 3
+    object_linear_velocity:
+      _target_: dex_track.object_linear_velocity_tracking
+      enabled: true
+      weight: 0.5
+      sigma: 0.2
+    object_angular_velocity:
+      _target_: dex_track.object_angular_velocity_tracking
+      enabled: true
+      weight: 0.5
+      sigma: 1.0
   regularization:
     # all finger joints
     joint_acc_l2:       {weight: 2.5e-7, joint_names: .*hand_.*_joint.*}
@@ -236,7 +285,6 @@ reward:
       _target_: dex_track.survival
       weight: 2.0
       enabled: true
-  # Logging only: excluded from both policy rewards and critic heads.
   metrics:
     _enabled_: false
     object_point_error:
@@ -244,7 +292,7 @@ reward:
       weight: 1.0
       enabled: false
       track_var: true
-      top_k: ${task.reward.tracking.object.top_k}
+      top_k: 3
     object_pos_error:
       _target_: dex_track.object_position_error
       weight: 1.0
@@ -291,7 +339,12 @@ termination:
     max_ang_vel: 200.0
   motion_end:
     _target_: dex_track.motion_end
-
 palm_position_root:
-  right: [0.008, 0.001, -0.023]
-  left: [0.008, -0.001, -0.023]
+  right:
+  - 0.008
+  - 0.001
+  - -0.023
+  left:
+  - 0.008
+  - -0.001
+  - -0.023

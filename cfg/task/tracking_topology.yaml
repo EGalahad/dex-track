@@ -1,6 +1,7 @@
 # @package task
-# Independent MANO/object reward task. Retarget data is used only at reset.
-# sigma_b=0.2 first; sigma_b=0.1 is a later user-requested ablation, not launched.
+# MANO/object topology reward task (formerly tracking_topov2_ov): coarse/fine object + object velocity,
+# MANO wrist velocity, bone sigma 0.1, hand-object Laplacian graph sigma 0.05. Retarget data is used only at reset.
+# Finger second-order reference-model action.
 name: dex-track-topology
 project: dex_track
 observe_on_reset: true
@@ -88,7 +89,16 @@ command:
   motion_file: ${task.motion_file}
   sampling: uniform
   object_tracking_radius: 0.4
-  palm_position_root: ${task.palm_position_root}
+  palm_position_root:
+    right:
+    - 0.008
+    - 0.001
+    - -0.023
+    left:
+    - 0.008
+    - -0.001
+    - -0.023
+  laplacian_graph_mode: hand_object
 observation:
   proprioception:
     wrist_projected_gravity:
@@ -189,7 +199,7 @@ reward:
     object:
       _target_: dex_track.object_tracking
       sigma: 0.2
-      weight: 2.0
+      weight: 1.0
       top_k: 3
     wrist_position:
       _target_: dex_track.wrist_position_tracking
@@ -199,8 +209,6 @@ reward:
       _target_: dex_track.wrist_orientation_tracking
       sigma: 0.6
       weight: 0.5
-    # Diagnostic retarget rewards keep tracking weights and log values;
-    # enabled=false excludes them only from the training reward total.
     finger_position:
       _target_: dex_track.finger_body_tracking
       weight: 0.5
@@ -218,11 +226,37 @@ reward:
     bone_direction:
       _target_: dex_track.mano_bone_direction_tracking
       weight: 1.0
-      sigma: 0.2
+      sigma: 0.1
     laplacian:
       _target_: dex_track.mano_object_laplacian_tracking
       weight: 1.0
+      sigma: 0.05
+      enabled: true
+    object_fine:
+      _target_: dex_track.object_tracking
+      sigma: 0.04
+      weight: 1.0
+      top_k: 3
+    object_linear_velocity:
+      _target_: dex_track.object_linear_velocity_tracking
+      enabled: true
+      weight: 0.5
+      sigma: 0.2
+    object_angular_velocity:
+      _target_: dex_track.object_angular_velocity_tracking
+      enabled: true
+      weight: 0.5
+      sigma: 1.0
+    wrist_linear_velocity:
+      _target_: dex_track.wrist_linear_velocity_tracking
+      enabled: true
       sigma: 0.1
+      weight: 0.25
+    wrist_angular_velocity:
+      _target_: dex_track.wrist_angular_velocity_tracking
+      enabled: true
+      sigma: 1.0
+      weight: 0.25
   regularization:
     joint_limits:
       _target_: dex_track.finger_joint_pos_limits
@@ -246,7 +280,7 @@ reward:
       weight: 1.0
       enabled: false
       track_var: true
-      top_k: ${task.reward.tracking.object.top_k}
+      top_k: 3
     object_pos_error:
       _target_: dex_track.object_position_error
       weight: 1.0

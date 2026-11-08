@@ -68,13 +68,11 @@ sampling rates come from metadata and `task.sim.step_dt` (normally 50 Hz).
 
 | Task | Purpose |
 |---|---|
-| `tracking` | 67/69 controller/reward settings: 18D controller state, wrist rotation D .3, position PD 350/25, four world velocity rewards; current shared semantic-palm frame convention |
-| `tracking_topology` | MANO future fingers in semantic palm, bone sigma .2, full Laplacian sigma .1; retarget finger position/orientation weights .5, disabled by default |
-| `tracking_ov` | Active coarse/fine object + object-velocity ablation |
-| `tracking_topov2_ov` | Active topo-v2 + coarse/fine/object-velocity ablation: MANO wrist velocity, bone sigma .1, hand-object graph sigma .05 |
+| `tracking` | 67/69 controller/reward settings (18D controller state, wrist rotation D .3, position PD 350/25, world velocity rewards) plus coarse/fine object and object-velocity rewards; finger second-order reference-model action |
+| `tracking_topology` | MANO future fingers in semantic palm; coarse/fine object + object velocity, MANO wrist velocity, bone sigma .1, hand-object Laplacian graph sigma .05; retarget finger rewards logged but disabled; finger reference-model action |
 
-No historical observation-schema branches are shipped. The two ablation cfgs
-remain because the current 13-run experiment actively uses them.
+The former `tracking_ov` / `tracking_topov2_ov` ablations are folded into these
+two tasks; no historical observation-schema branches are shipped.
 
 - Velocity: set individual `task.reward.tracking.*_velocity.enabled=false`; terms
   still compute/log. Object V terms are present in the O/V cfgs.

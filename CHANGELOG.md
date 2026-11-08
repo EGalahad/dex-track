@@ -32,6 +32,14 @@ Runtime / training changes only (data-pipeline work omitted).
 - Added `joint_acc_l2` / `joint_vel_l2` regularization terms on finger joints
   (`task=tracking`).
 
+### Task configs
+- `tracking` now carries the former `tracking_ov` rewards (coarse/fine object,
+  object linear/angular velocity; object weight 1) and `tracking_topology`
+  the former `tracking_topov2_ov` settings (adds object velocity and MANO
+  wrist velocity, bone sigma 0.1, hand-object Laplacian graph sigma 0.05).
+  Both keep the finger reference-model action; `tracking` keeps the finger
+  `joint_acc_l2` / `joint_vel_l2` terms. The two `_ov` cfgs are removed.
+
 ### Tools
 - `scripts/visualize_motion.py`: Viser reference-motion viewer with motion
   picker and visual / collision geom checkboxes.
