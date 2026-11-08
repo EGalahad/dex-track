@@ -115,7 +115,7 @@ class ExperimentRun:
         self._raw.log(payload, step=step)
 
     def save(self, path: str, policy: str = "now", base_path: str | None = None) -> None:
-        del policy, base_path
+        del policy
         self._ensure()
         if self.mode == "disabled":
             return
