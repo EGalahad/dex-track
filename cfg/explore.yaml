@@ -1,0 +1,31 @@
+# Exploration viewer (scripts/explore.py): same task/algo groups and overrides as train.yaml,
+# rollout only (training-mode env, sampled actions), no optimization or logging.
+defaults:
+  - train
+  - _self_
+
+hydra:
+  run:
+    dir: ./outputs/explore/${now:%Y-%m-%d}/${now:%H-%M-%S}-${task.name}
+  job:
+    chdir: false
+
+# Fuse rollout tensor math; the first run pays a compilation warm-up cost.
+# Set task.tensor_compile=false task.rollout_compile=[] for eager debugging.
+task:
+  num_envs: 4
+  tensor_compile: true
+  rollout_compile: [observations, rewards, control]
+
+headless: false
+realtime: true
+explore_steps: null
+print_every: 2.0
+# record mode: run headless for record_seconds of sim time and write outputs/explore/.../explore.mp4
+record_seconds: null
+record_envs: 4
+video_slowdown: 1   # 1 = real time, 4 = every physics substep shown (0.25x)
+video_size: [360, 480]
+label: null
+wandb:
+  mode: disabled
