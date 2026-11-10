@@ -45,16 +45,17 @@ support is established; never alias them to an active object.
 
 `export_annotations.py` exports actual hand mesh/scale identities, complete scene
 IDs, fixed supports, metadata and topology SHA256 from a prepared NPZ dataset.
-Include this export, the reviewed stage manifest and the review decisions beside
-the future HF dataset. `topology.npz` must accompany every motion. Do not upload
-only trajectories while losing these annotations or adjacency payloads.
+For the topology-enabled cleanup candidate, retain the reviewed stage manifest,
+review decisions and topology beside the trajectories. The current canonical v2
+release instead embeds assignments/provenance in each metadata.json and has no
+topology sidecars; topology training requires generating them first.
 
 ## 3. XHand TopoRetarget and the C choice
 
 `retarget_C.py` and `retarget_impl.py` adapt both XHands using
 `config/xhand_{right,left}.json` and `assets/`. A hand has 6 floating wrist DoFs
 and 12 articulated finger DoFs; export maps these to the named 36-joint bimanual
-reset representation. MCP/thumb-CMC proxies use link1; fixed distal proxies
+legacy reset representation before conversion to free-root qpos. MCP/thumb-CMC proxies use link1; fixed distal proxies
 supply MANO-compatible landmarks. Wrist conversion accounts for source root
 position/rotation, ZXY convention and float32 quantization bounds. The associated
 object alone supplies topology samples; other scene objects and accepted supports
@@ -75,9 +76,10 @@ python data_pipeline/retarget_C.py /absolute/prepared/retargeted/CLIP.npz \
   --work /absolute/temporary/C-work --output /absolute/temporary/C-work/outputs/CLIP
 ```
 
-`pack_C.py --work ...` replaces only robot qpos and derived qvel in the retained
-original reference. Qvel is per-clip gradient × FPS followed by sigma-2-frame
-Gaussian smoothing. MANO/object/contact/source association tensors are unchanged.
+`pack_C.py --work ...` updates robot retarget coordinates in the retained
+reference before conversion to free-root qpos. The current v2 files store no robot
+velocity or contact arrays; runtime derives robot velocities per segment after
+policy-rate resampling. MANO/object/source association arrays are retained.
 It writes NPZ training folders directly and does not maintain a redundant
 permanent 50 Hz corpus. Its work layout expects `inputs/platforms` to reference
 the prepared source; temporary retarget outputs are not a second canonical source.
@@ -129,24 +131,28 @@ validated packed implementation with explicit quaternion slices.
 
 ## 6. NPZ and reference adjacency
 
-Storage is `dex-track-motion-folders-v1`:
+Current storage is `dex-track-motion-folders-v2`:
 
 ```
 index.json
-motions/NNNN-NAME/{metadata.json,robot.npz,mano.npz,scene.npz,contact.npz,topology.npz}
+motions/NNNN-NAME/{metadata.json,robot.npz,mano.npz,objects.npz}
 objects/ID/{visual.obj,convex/...,...}
+collision_simplified/...
 supports/...
 ```
 
 `metadata.json` encodes nested metadata and array references
 `{"__array__": KEY, "file": "GROUP.npz", "kind": "torch"}`. Loading uses
-`allow_pickle=False` and preserves dtype. Robot contains `joint_pos/joint_vel`;
-MANO contains wrist poses, named finger landmarks and their reference derivatives;
-scene contains physical scene object position/quaternion/linear/angular velocity,
-clip lengths and hand slot mappings; contact contains per-side contacts, local
-nearest vertices and tip distances. Positions are metres, rotations are matrices
-or wxyz quaternions as named, angular velocity rad/s. Assets and fixed support
-poses are scene-local; the command adds parallel environment origins.
+`allow_pickle=False` and preserves dtype. Robot contains free-root `qpos[T,38]`
+(right then left, each xyz+wxyz+12 fingers); velocities are derived per segment.
+MANO contains both hands' wrist poses, named finger landmarks and retained
+reference derivatives. Objects contains complete scene position/quaternion/
+linear/angular velocity, clip lengths and hand slot mappings. Contact arrays
+are not stored. Positions are metres, angular velocity rad/s. Assets and fixed
+supports are scene-local; the command adds parallel environment origins.
+
+The following optional graph sidecar is required for topology training but is
+absent from the current full-corpus canonical release.
 
 `topology.npz` uses `dex-track-topology-v1` at explicit **policy FPS**:
 
@@ -196,3 +202,13 @@ HF caches are transient/managed; no second original-collision converted corpus.
 before uploading. It does not treat `published=false` as approval. For this
 candidate it refuses publication, so **HF revision is null**. The original source
 SHA is `2f3ce7b9200f7af8560cfd7ec58329b79e0a56e553c0fe5209fa271f9bf4b852`.
+
+## Current canonical v2 publication
+
+Use `publish_portable_dataset.py` for the explicitly selected unchanged canonical
+corpus. It excludes SDF/USD caches, includes generator tools, seals all files, and
+verifies HF blob hashes. `prepare_release.py` and `upload_dataset.py` above are
+the legacy reviewed-candidate workflow; do not use its v1 layout for current v2.
+The canonical release is not approval of the quarantined cleanup candidate.
+See [current dataset contract](../docs/dataset.md) for qpos storage, derived
+robot velocities, removed contact arrays, download and regeneration commands.

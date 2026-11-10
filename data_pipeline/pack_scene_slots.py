@@ -4,7 +4,7 @@ Context JSON maps clip stems to entries with object_id, poses_npz, poses_key,
 scale (optional), and provenance. Poses must be aligned T x 4 x 4 transforms in
 exactly the packed clip frame/timeline. No pose is guessed from text labels.
 """
-import argparse,json,runpy,sys
+import argparse,json,runpy,sys,tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
@@ -18,9 +18,11 @@ def main():
     p.add_argument('--contexts',type=Path)
     p.add_argument('--fps',type=float,help='Packed sample rate; required when meta.fps is absent')
     a=p.parse_args()
-    from dex_track.motion_storage import load_motion_data, save_motion_dataset, resolve_motion_path
+    from dex_track.motion_storage import load_motion_data, save_motion_dataset, resolve_motion_path, write_motion_folders
+    from convert_motion_storage import convert_robot, segment_records
     a.motion_file=resolve_motion_path(a.motion_file)
-    raw=load_motion_data(a.motion_file)
+    raw=(torch.load(a.motion_file,map_location='cpu',weights_only=False)
+         if a.motion_file.suffix=='.pt' else load_motion_data(a.motion_file))
     meta=raw.setdefault('meta',{})
     if a.fps is not None:
         for recorded in (meta.get('fps'),raw.get('fps')):
@@ -41,10 +43,14 @@ def main():
     raw['motion_scene_object_ids']=ids
     raw['scene_selection_provenance']=[{'source':'explicit hand assignments plus reviewed context trajectories','contexts':contexts.get(n,[])} for n in raw['motion_filename']]
     # First derive existing held-object states through the validated compatibility path.
-    temporary=a.motion_file.with_suffix('.scene-base.pt');torch.save(raw,temporary)
-    try:
-        cat=data_api['load_scene_catalog'](temporary)
-    finally:temporary.unlink(missing_ok=True)
+    raw,_=convert_robot(raw)
+    with tempfile.TemporaryDirectory(prefix='dex-scene-base-') as temporary:
+        temporary=Path(temporary)
+        index=write_motion_folders(raw,temporary)
+        for name in ('objects','supports'):
+            if (a.motion_file.parent/name).exists():
+                (temporary/name).symlink_to((a.motion_file.parent/name).resolve(),target_is_directory=True)
+        cat=data_api['load_scene_catalog'](index)
     all_ids=[held+[r['object_id'] for r in contexts.get(name,[]) if r['object_id'] not in held] for held,name in zip(ids,raw['motion_filename'])]
     count=max(map(len,all_ids))
     if count>8:raise ValueError(f'Maximum clip object count {count} exceeds 8')
@@ -65,6 +71,7 @@ def main():
             for key,value in [('pos',pos),('quat',q),('lin_vel',np.gradient(pos,1/fps,axis=0)),('ang_vel',angular)]:state[key][sl,j]=torch.from_numpy(value).float()
     raw['motion_scene_object_ids']=all_ids
     raw.update({f'scene_object_{k}':v for k,v in state.items()})
+    segment_records(raw)
     from dex_track.supports import SCHEMA, write_support_asset
     if 'motion_scene_supports' not in raw:
         raw['motion_scene_supports']=[[] for _ in raw['motion_filename']]

@@ -13,7 +13,7 @@ class TopologyBuilder:
         from filelock import FileLock
         self.c = c = command
         self.indices = [geometry.mano_indices(c.dataset.mano_joint_names[s]) for s in c.hand_sides]
-        motion = c.dataset.frames
+        motion = c.dataset.mano
         fingers = torch.stack([motion.mano_joint_pos_w[:, si, ids] for si, ids in enumerate(self.indices)], 1)
         self.mano = torch.cat((motion.mano_wrist_pos_w[:, :, None], fingers), 2)
         directions = geometry.bone_directions(self.mano, motion.mano_wrist_rotmat_w)
@@ -38,8 +38,8 @@ class TopologyBuilder:
         self.graphs = []
         meshes = {}
         mano_cpu = self.mano.cpu().numpy()
-        obj_p = motion.object_pos_w.cpu().numpy()
-        obj_r = motion.object_rotmat_w.cpu().numpy()
+        object_pos, object_rot = c.dataset.hand_object_trajectory()
+        obj_p, obj_r = object_pos.cpu().numpy(), object_rot.cpu().numpy()
         code = hashlib.sha256(Path(geometry.__file__).read_bytes() + Path(__file__).read_bytes()).digest()
         graph_fields = ('ptr', 'rows', 'cols')
         for mi, (start, length) in enumerate(zip(c.dataset.starts.tolist(), c.dataset.lengths.tolist())):
@@ -57,8 +57,9 @@ class TopologyBuilder:
                 a, n = (native_starts[mi], native_lengths[mi])
                 ids = geometry.mano_indices(raw[f'mano_{side}_joint_names'])
                 tips = raw[f'mano_{side}_joints'][a:a + n, [ids[i] for i in (3, 7, 11, 15, 19)]].cpu().numpy()
-                pos = raw[f'obj_{side}_pos'][a:a + n].cpu().numpy()
-                rot = raw[f'obj_{side}_rotmat'][a:a + n].cpu().numpy()
+                pos = raw['scene_object_pos'][a:a + n,slot].cpu().numpy()
+                from scipy.spatial.transform import Rotation
+                rot = Rotation.from_quat(raw['scene_object_quat'][a:a + n,slot].cpu().numpy(),scalar_first=True).as_matrix()
                 tips_local = np.einsum('tpi,tij->tpj', tips - pos[:, None], rot).reshape(-1, 3)
                 points = geometry.sample_proxcurv(mesh, tips_local)
                 self.object_points[mi, si] = torch.as_tensor(points, device=c.device, dtype=torch.float32)
@@ -79,7 +80,7 @@ class TopologyBuilder:
 
     def _prepare_adjacency_bank(self):
         c = self.c
-        bits = np.zeros((len(c.dataset.frames), 2, 71, 9), dtype=np.uint8)
+        bits = np.zeros((len(c.dataset.mano), 2, 71, 9), dtype=np.uint8)
         for mi, graphs in enumerate(self.graphs):
             start = int(c.dataset.starts[mi])
             for si, graph in enumerate(graphs):

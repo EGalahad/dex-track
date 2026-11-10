@@ -32,14 +32,16 @@ def main():
     folders = [path.parent/row['path'] for row in manifest['motions']] if 'motions' in manifest else [path]
     catalog = load_scene_catalog(path); raw = catalog['raw']
     dataset = load_motion_dataset(raw, scene_state=catalog['state'], step_dt=1/args.fps,
-        joint_order=list(range(raw['joint_pos'].shape[-1])), device='cpu')
+        hand_slots=catalog['hand_slots'],
+        joint_names=[n for row in raw['robot']['finger_joint_names'] for n in row], device='cpu')
     sides = ('right', 'left')
     names = [body_name(n, 'mjlab') for side in sides for n, _ in geometry.landmark_specs(side)]
     c = SimpleNamespace(dataset=dataset, hand_sides=sides, robot=SimpleNamespace(body_names=names),
         env=SimpleNamespace(backend='mjlab'), scene_objects=SimpleNamespace(catalog=catalog),
-        palm_position_root={'right':[.008,.001,-.023], 'left':[.008,-.001,-.023]},
+        palm_position_root={s:raw['robot']['palm_in_root'][s]['position_xyz'] for s in sides},
         device='cpu', laplacian_mode='on_the_fly', prepare_topology_dataset=True)
     topology = TopologyBuilder(c, args.cache)
+    object_pos, object_rot = dataset.hand_object_trajectory()
     for mi, metadata in enumerate(folders):
         start, length = int(dataset.starts[mi]), int(dataset.lengths[mi])
         points = topology.object_points[mi].numpy()
@@ -48,7 +50,7 @@ def main():
             reference_sha256=np.asarray(raw_motion_digest(raw, mi)),
             points_sha256=np.asarray(hashlib.sha256(np.ascontiguousarray(points).tobytes()).hexdigest()))
         validate_topology_payload(payload, topology.mano[start:start+length].numpy(),
-            dataset.frames.object_pos_w[start:start+length].numpy(), dataset.frames.object_rotmat_w[start:start+length].numpy(), dataset.fps, raw_motion_digest(raw, mi))
+            object_pos[start:start+length].numpy(), object_rot[start:start+length].numpy(), dataset.fps, raw_motion_digest(raw, mi))
         target = metadata.parent/'topology.npz'
         temporary = target.with_suffix('.partial.npz')
         np.savez_compressed(temporary, **payload); temporary.replace(target)

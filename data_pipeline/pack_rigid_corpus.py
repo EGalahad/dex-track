@@ -84,9 +84,13 @@ def main():
     args=p.parse_args()
     from dex_track.motion_storage import load_motion_data, save_motion_dataset, resolve_motion_path
     args.motion_file=resolve_motion_path(args.motion_file)
-    raw=load_motion_data(args.motion_file)
+    raw=(torch.load(args.motion_file,map_location='cpu',weights_only=False)
+         if args.motion_file.suffix=='.pt' else load_motion_data(args.motion_file))
     cfg=OmegaConf.load(source_root()/'config/retarget/kinematic_retargeting.yaml')
     attach_scenes(raw,args.retargeted,float(cfg.pack.vel_sigma))
+    from convert_motion_storage import convert_robot, segment_records
+    raw, _ = convert_robot(raw)
+    segment_records(raw)
     for supports in raw['motion_scene_supports']:
         write_support_asset(args.motion_file.resolve().parent, supports)
     index=save_motion_dataset(raw,args.motion_file)

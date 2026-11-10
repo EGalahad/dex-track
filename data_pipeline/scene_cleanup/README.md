@@ -1,5 +1,11 @@
 # Candidate scene cleanup (not admitted for publication)
 
+These scripts describe the historical v1 parking candidate and require its
+frozen v1 inputs/contact annotations. They are not a v2 training-data pipeline.
+The canonical v2 dataset deliberately omits contact arrays and uses free-root
+qpos; do not point these legacy candidate scripts at that dataset. Re-running
+this candidate requires its frozen code snapshot as well as frozen data.
+
 These are the actual numeric generation/admission stages used for the parking-v1
 candidate. They are kept separately from the runtime MDP. The candidate remains
 quarantined: this directory is not a command to publish or overwrite training data.
