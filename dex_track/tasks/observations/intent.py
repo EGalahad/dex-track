@@ -1,8 +1,8 @@
 """Intent views over command-owned current/future tracking errors."""
 import torch
 from .common import TrackObservation
-from ..reference.math import matrix_from_quat
-from ..reference.errors import pose_error_in_anchor
+from ..transforms import matrix_from_quat
+from ..transforms import pose_error_in_anchor
 
 
 
@@ -25,10 +25,9 @@ class mano_wrist_error_wrist(_future_reference, namespace='dex_track'):
         self.rotation_rows = bool(rotation_rows)
 
     def compute(self):
-        errors = self.command_manager.wrist_tracking_errors(self.offsets)
-        r = errors.rotation_error_local
+        _, position_delta_local, r, _, _ = self.command_manager.wrist_tracking_errors(self.offsets)
         rot6d = r[..., :2, :].flatten(-2) if self.rotation_rows else r[..., :2].flatten(-2)
-        return torch.cat((errors.position_delta_local, rot6d), -1).flatten(1)
+        return torch.cat((position_delta_local, rot6d), -1).flatten(1)
 
 
 
@@ -46,16 +45,16 @@ class mano_finger_pos_future_palm(_future_reference, namespace='dex_track'):
 
 
 
-def finger_reference_in_anchor(local_p, local_q, future_root, current_root):
+def finger_reference_in_anchor(local_p, local_q, future_p, future_q, current_p, current_q):
     """Future retarget links in the CURRENT reference wrist-link frame.
 
     Mirrors mimic-lite ref_body_*_future_local (reference anchor, not robot
     feedback or a pose error). Each hand has its own full wrist SE(3) anchor.
     """
-    from ..wrist_math import inverse, multiply, rotate
-    anchor_inv = inverse(current_root[:, None, :, 3:7])
-    relative_q = multiply(anchor_inv, future_root[..., 3:7])
-    relative_p = rotate(anchor_inv, future_root[..., :3] - current_root[:, None, :, :3])
+    from ..transforms import inverse, multiply, rotate
+    anchor_inv = inverse(current_q[:, None])
+    relative_q = multiply(anchor_inv, future_q)
+    relative_p = rotate(anchor_inv, future_p - current_p[:, None])
     q = relative_q[..., None, :].expand_as(local_q)
     return relative_p[..., None, :] + rotate(q, local_p), multiply(q, local_q)
 
@@ -66,14 +65,14 @@ class _future_finger_reference(_future_reference):
         from ..reference.finger_bodies import finger_body_reference
         self.reference = finger_body_reference(self.command_manager)
         self.reference.prepare('retarget')
-        if not hasattr(self.command_manager, 'free_root_states'):
-            raise ValueError('Future finger references require retarget wrist root states (free-hand pair)')
 
     def poses(self):
         c = self.command_manager
         indices = c.dataset.frame_indices(c.motion_ids[:, None], c.motion_steps[:, None] + self.offsets)
         p, q = (value[indices] for value in self.reference.retarget)
-        return finger_reference_in_anchor(p, q, c.free_root_states[indices], c.free_root_states[c.frame_indices])
+        root = c.dataset.robot
+        return finger_reference_in_anchor(p, q, root.root_pos_w[indices], root.root_quat_w[indices],
+                                          root.root_pos_w[c.frame_indices], root.root_quat_w[c.frame_indices])
 
 
 

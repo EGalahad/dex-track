@@ -59,7 +59,7 @@ class tip_object_distance(_exponential_tracking, namespace='dex_track'):
 class wrist_position_tracking(_exponential_tracking, namespace='dex_track'):
     def _compute(self):
         c = self.command_manager
-        error = c.wrist_tracking_errors().position_error
+        _, _, _, error, _ = c.wrist_tracking_errors()
         return torch.exp(-error / self.sigma).mean(-1, keepdim=True)
 
 
@@ -67,7 +67,7 @@ class wrist_position_tracking(_exponential_tracking, namespace='dex_track'):
 class wrist_orientation_tracking(_exponential_tracking, namespace='dex_track'):
     def _compute(self):
         c = self.command_manager
-        error = c.wrist_tracking_errors().orientation_error
+        _, _, _, _, error = c.wrist_tracking_errors()
         return torch.exp(-error / self.sigma).mean(-1, keepdim=True)
 
 
@@ -78,8 +78,8 @@ class _velocity_tracking(_exponential_tracking):
         self.command_manager.prepare_velocity_reference(self.kind)
 
     def _compute(self):
-        errors = self.command_manager.velocity_tracking_errors(self.kind)
-        error = getattr(errors, self.component + '_error')
+        linear_error, angular_error = self.command_manager.velocity_tracking_errors(self.kind)
+        error = linear_error if self.component == 'linear' else angular_error
         if self.kind == 'finger':
             error = error.mean(-1)  # mean link error within each hand
         return torch.exp(-error/self.sigma).mean(-1, keepdim=True)
@@ -109,7 +109,7 @@ class finger_angular_velocity_tracking(_velocity_tracking, namespace='dex_track'
 class fingertip_tracking(_exponential_tracking, namespace='dex_track'):
     def _compute(self):
         c = self.command_manager
-        error = c.mano_tip_tracking_errors().position_error
+        _, _, error = c.mano_tip_tracking_errors()
         return torch.exp(-error / self.sigma).mean(-1).mean(-1, keepdim=True)
 
 

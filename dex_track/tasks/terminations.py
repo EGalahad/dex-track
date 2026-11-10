@@ -5,7 +5,6 @@ import torch
 from active_adaptation.envs.mdp.terminations.base import Termination
 
 from .command import MotionTracking
-from .exceed import ConsecutiveExceed
 
 
 TrackTermination = Termination[MotionTracking]
@@ -28,9 +27,9 @@ class object_tracking_error(TrackTermination, namespace='dex_track'):
 
     def _initialize(self, env):
         super()._initialize(env)
-        self.exceed = ConsecutiveExceed(
-            (self.num_envs, self.command_manager.scene_objects.count),
-            self.device, self.threshold, self.min_steps)
+        self.exceed_steps = torch.zeros(
+            self.num_envs, self.command_manager.scene_objects.count,
+            device=self.device, dtype=torch.int32)
 
     def update(self):
         c = self.command_manager
@@ -41,16 +40,16 @@ class object_tracking_error(TrackTermination, namespace='dex_track'):
             start, end = self.curriculum['start_fraction'], self.curriculum['end_fraction']
             alpha = min(1., max(0., (progress-start)/(end-start)))
             threshold += alpha*(self.curriculum['final_threshold']-self.threshold)
-        self.exceed.threshold = threshold
         self.env.extra['curriculum/object_tracking_threshold'] = threshold
-        self.exceed.update(c.object_tracking_error(), c.scene_objects.mask)
+        exceeded = c.scene_objects.mask & (c.object_tracking_error() > threshold)
+        self.exceed_steps = torch.where(exceeded, self.exceed_steps + 1, 0)
 
     def reset(self, env_ids, tensordict=None):
-        self.exceed.reset(env_ids)
+        self.exceed_steps[env_ids] = 0
 
     def compute(self, termination):
         # Reading/logging a termination must never advance its counter.
-        return (self.exceed.steps >= self.min_steps).any(-1, keepdim=True)
+        return (self.exceed_steps >= self.min_steps).any(-1, keepdim=True)
 
 
 class robot_velocity_limit(TrackTermination, namespace='dex_track'):

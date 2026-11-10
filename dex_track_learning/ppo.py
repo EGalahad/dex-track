@@ -40,12 +40,12 @@ from active_adaptation.learning.ppo.common import (
     make_mlp,
 )
 from active_adaptation.learning.ppo.ppo_base import PPOBase
-from .action_routing import ActionRouting
 from active_adaptation.learning.utils.opt import MuonAdamWWrapper
 from active_adaptation.learning.utils.valuenorm import ValueNorm1, ValueNormFake
 from active_adaptation.utils.profiling import ScopedTimer
 
 from .common import (
+    ActionRouting,
     ActorROA,
     MeanAction,
     NullVecNorm,

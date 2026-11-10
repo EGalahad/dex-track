@@ -6,7 +6,7 @@ and writes; it never advances physics or refreshes derived state on reads.
 from types import SimpleNamespace
 import torch
 from active_adaptation.utils.string import resolve_matching_names
-from dex_track.tasks.wrist_math import rotate
+from dex_track.tasks.transforms import rotate
 
 class HandPairData:
     def __init__(self, pair): self.pair = pair
@@ -21,6 +21,10 @@ class HandPair:
     is_free_hand_pair = True
     def __init__(self, right, left):
         self.hands = (right,left)
+        # Construct mjlab's lazy zero-copy Torch views before compiling controls.
+        # Keep reading the live model arrays so randomized COM offsets stay current.
+        for hand in self.hands:
+            _ = hand.data.model.body_ipos, hand.data.data.ctrl
         self.joint_names = tuple(right.joint_names)+tuple(left.joint_names)
         self.body_names = tuple(right.body_names)+tuple(left.body_names)
         self.num_joints = len(self.joint_names); self.num_bodies = len(self.body_names)

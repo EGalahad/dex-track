@@ -11,6 +11,8 @@ FINGERS = ('thumb', 'index', 'middle', 'ring', 'pinky')
 PARTS = ('proximal', 'intermediate', 'distal', 'tip')
 EDGES = np.array([(0 if j == 0 else 1+4*f+j-1, 1+4*f+j)
                   for f in range(5) for j in range(4)], dtype=np.int64)
+# Static indices avoid NumPy-to-tensor conversion inside compiled inference.
+BONE_PARENTS, BONE_CHILDREN = EDGES.T.tolist()
 
 
 def mano_indices(names):
@@ -37,8 +39,7 @@ def landmark_specs(side):
 
 def bone_directions(points, rotation):
     """Unit bones in the hand's own palm axes; preserve leading batch dims."""
-    a, b = EDGES.T
-    bones = points[..., b, :] - points[..., a, :]
+    bones = points[..., BONE_CHILDREN, :] - points[..., BONE_PARENTS, :]
     bones = torch.matmul(bones, rotation)
     return torch.nn.functional.normalize(bones, dim=-1, eps=1e-8)
 

@@ -1,8 +1,8 @@
 """Dataset-sized rigid-object slots; unused slots never enter tracking statistics."""
 import torch
 import trimesh
-from .reference.math import matrix_from_quat
-from .object_tracking_points import normalize_tracking_points
+from .transforms import matrix_from_quat
+from .reference.object_points import normalize_tracking_points
 
 
 class SceneObjects:

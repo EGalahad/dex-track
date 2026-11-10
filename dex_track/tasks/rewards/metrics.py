@@ -26,23 +26,27 @@ class object_point_error(_metric, namespace='dex_track'):
 class object_position_error(_metric, namespace='dex_track'):
     """Physical object-origin translation error (m), without point normalization."""
     def _compute(self):
-        return self.object_mean(self.command_manager.object_pose_tracking_errors().position_error)
+        _, error, _ = self.command_manager.object_pose_tracking_errors()
+        return self.object_mean(error)
 
 
 class object_orientation_error(_metric, namespace='dex_track'):
     """Geodesic object orientation error (rad)."""
     def _compute(self):
-        return self.object_mean(self.command_manager.object_pose_tracking_errors().orientation_error)
+        _, _, error = self.command_manager.object_pose_tracking_errors()
+        return self.object_mean(error)
 
 
 class wrist_position_error(_metric, namespace='dex_track'):
     def _compute(self):
-        return self.command_manager.wrist_tracking_errors().position_error.mean(-1, keepdim=True)
+        _, _, _, error, _ = self.command_manager.wrist_tracking_errors()
+        return error.mean(-1, keepdim=True)
 
 
 class wrist_orientation_error(_metric, namespace='dex_track'):
     def _compute(self):
-        return self.command_manager.wrist_tracking_errors().orientation_error.mean(-1, keepdim=True)
+        _, _, _, _, error = self.command_manager.wrist_tracking_errors()
+        return error.mean(-1, keepdim=True)
 
 
 class _finger_error(_metric):

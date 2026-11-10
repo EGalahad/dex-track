@@ -4,8 +4,8 @@ import trimesh
 from .common import TrackObservation
 from dex_track.assets import body_name
 from dex_track.tasks.reference.collision_geometry import collision_mesh
-from ..reference.hand import ALLLINK_BODY_NAMES_BY_SIDE
-from ..reference.math import quat_apply, quat_apply_inverse
+from dex_track.wrist_frames import ALLLINK_BODY_NAMES_BY_SIDE
+from ..transforms import quat_apply, quat_apply_inverse
 from ..reference.object_points import farthest_point_sample
 
 

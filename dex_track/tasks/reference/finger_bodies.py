@@ -2,8 +2,8 @@
 import numpy as np
 import torch
 from dex_track.assets import description, robot_model, body_name
-from .hand import ALLLINK_BODY_NAMES_BY_SIDE
-from ..wrist_math import inverse, multiply, rotate, log
+from dex_track.wrist_frames import ALLLINK_BODY_NAMES_BY_SIDE
+from ..transforms import inverse, multiply, rotate, log
 
 SIDES = ('right', 'left')
 
@@ -56,7 +56,7 @@ class FingerBodyReference:
     def prepare(self, reference, nominal=None):
         if reference == 'retarget':
             if self.retarget is None:
-                self.retarget = fk_local(self.command.dataset.reset.joint_pos, self.command.robot.joint_names, self.command.device)
+                self.retarget = fk_local(self.command.dataset.robot.joint_pos, self.command.robot.joint_names, self.command.device)
             return None
         if reference != 'nominal':
             raise ValueError(reference)
@@ -66,23 +66,19 @@ class FingerBodyReference:
         return key
 
     def actual(self):
-        state = self.command.finger_body_state()
-        return state.position_local, state.quaternion_local
+        _, _, position_local, quaternion_local = self.command.finger_body_state()
+        return position_local, quaternion_local
 
     def world_trajectory(self):
         """Same global retarget pose used by future finger-error observations."""
         if self.retarget_world is None:
             self.prepare('retarget')
             c = self.command
-            if hasattr(c, 'free_root_states'):
-                p, q = self.retarget
-                root = c.free_root_states
-                root_q = root[..., None, 3:7].expand_as(q)
-                self.retarget_world = (root[..., None, :3] + rotate(root_q, p),
-                                       multiply(root_q, q))
-            else:
-                self.retarget_world = fk_local(c.dataset.reset.joint_pos,
-                    c.robot.joint_names, c.device, relative_to_wrist=False)
+            p, q = self.retarget
+            root = c.dataset.robot
+            root_q = root.root_quat_w[..., None, :].expand_as(q)
+            self.retarget_world = (root.root_pos_w[..., None, :] + rotate(root_q, p),
+                                   multiply(root_q, q))
         return self.retarget_world
 
     def target(self, reference, key=None):

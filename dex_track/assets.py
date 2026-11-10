@@ -137,7 +137,8 @@ def scene_support(backend, motion_file):
     if any(s['friction'] != .5 for row in rows for s in row):
         raise ValueError('Scene support assets currently require friction=0.5')
     variants = [(support_asset_directory(row), 1.) for row in rows]
-    return _rigid_variants(backend, Path(motion_file).resolve().parent, variants, fixed=True)
+    # Supports are already generated primitive meshes, not object-ID assets.
+    return _rigid_variants(backend, Path(motion_file).resolve().parent, variants, fixed=True, collision_variant='original')
 
 
 def _rigid_variants(backend, base, variants, fixed=False, staging_position=(0., 0., 10.), collision_variant='simplified'):
@@ -237,7 +238,8 @@ Registry.instance().register('asset','dex_track.scene_object',scene_object)
 Registry.instance().register('asset','dex_track.scene_support',scene_support)
 
 
-def xhand_free(backend, side='right', finger_damping=2.5, usd_path=None, palm_position_root=None, collision_variant='simplified'):
+def xhand_free(backend, side='right', finger_damping=2.5, usd_path=None, palm_position_root=None, collision_variant='simplified',
+               finger_stiffness=20., finger_armature=.01, finger_passive_damping=None):
     """Independent wrist-root entity with pinned upstream inertial parameters."""
     if backend != 'mjlab':
         raise NotImplementedError('Integrated free-hand pair currently requires mjlab; Isaac assets are separately audited')
@@ -250,7 +252,7 @@ def xhand_free(backend, side='right', finger_damping=2.5, usd_path=None, palm_po
         # PD tracks both the position target and the velocity target (kd*(v_target - v)); effort is a sum-clamp.
         # 'implicit' (BuiltinPositionActuator) would silently ignore velocity targets.
         actuators={'fingers':ActuatorCfg(joint_names_expr=f'{side}_hand_.*',mode='explicit',effort_limit=100.,
-            velocity_limit=1000.,stiffness=20.,damping=finger_damping,friction=0.,armature=.01)},
+            velocity_limit=1000.,stiffness=float(finger_stiffness),damping=finger_damping,friction=0.,armature=float(finger_armature))},
         self_collisions=True)
     result=cfg.to_asset_spec(backend)
     spec=result.config.spec_fn()
@@ -275,6 +277,14 @@ def xhand_free(backend, side='right', finger_damping=2.5, usd_path=None, palm_po
         if position.shape != (3,) or not np.isfinite(position).all():
             raise ValueError('palm_position_root must contain finite xyz for each hand')
         # Validated metadata only: command applies semantic alignment, no sites.
+    # Optional passive joint damping override; None keeps the XML joint default (1.0).
+    if finger_passive_damping is not None:
+        import re
+        import numpy as np
+        joints=[j for j in spec.joints if re.fullmatch(f'{side}_hand_.*',j.name)]
+        if not joints:raise ValueError('no finger joints matched for passive damping override')
+        for j in joints:
+            damping=np.asarray(j.damping,dtype=float).reshape(-1).copy();damping[0]=float(finger_passive_damping);j.damping=damping
     for a in list(spec.actuators):spec.delete(a)
     # The XML <default><position kp kv forcerange/> would leak into every actuator mjlab adds later: the BuiltinPd
     # <velocity> element would inherit biasprm[1]=-kp (an extra, target-free stiffness toward q=0). Neutralize it.
@@ -295,6 +305,15 @@ Registry.instance().register('asset','dex_track.xhand_free',xhand_free)
 
 def simplified_object_collision(path):
     # Preserve original visual/inertial assets and each independent convex piece.
+    path = Path(path).resolve()
+    # Current corpora carry their verified collision meshes alongside source
+    # visuals. Frozen experiment packs retain the project asset fallback.
+    relative = Path(*path.parts[path.parts.index('objects') + 1:]) if 'objects' in path.parts else None
+    if relative is not None:
+        root = path.parents[len(relative.parts)]
+        bundled = root/'collision_simplified'/'objects'/relative
+        if bundled.is_file():
+            return bundled
     root = Path(__file__).resolve().parents[1]/'assets/collision_simplified'
     if '/objects/' not in str(path):
         raise ValueError(f'Object collision path lacks stable object identity: {path}')

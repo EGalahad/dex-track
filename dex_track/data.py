@@ -44,7 +44,7 @@ def validate_training_object_limit(path, max_objects=8, excluded_motions=None):
     return counts
 
 
-def validate_motion(path, action_dim=36, require_sim_assets=True):
+def validate_motion(path, action_dim=36, require_sim_assets=False):
     path = resolve_motion_path(path)
     data = load_motion_data(path)
     fps = dataset_fps(data)
@@ -55,31 +55,50 @@ def validate_motion(path, action_dim=36, require_sim_assets=True):
     if not torch.equal(starts, lengths.cumsum(0) - lengths):
         raise ValueError("Non-contiguous clip starts")
     frames = int(lengths.sum())
-    for key in ("joint_pos", "joint_vel"):
-        if data[key].shape != (frames, action_dim):
-            raise ValueError(f"{key}: expected {(frames, action_dim)}, got {data[key].shape}")
-    required = ["joint_pos", "joint_vel"]
+    if data.get('robot', {}).get('representation') != 'free-root-qpos-wxyz-v1':
+        raise ValueError('Expected current free-root qpos; migrate the legacy dataset first')
+    if data['qpos'].shape != (frames, 38):
+        raise ValueError(f"qpos: expected {(frames, 38)}, got {data['qpos'].shape}")
+    roots = data['qpos'].reshape(frames, 2, 19)[:, :, 3:7]
+    if ((roots.norm(dim=-1) - 1).abs() > 1e-4).any():
+        raise ValueError('Robot root quaternions must be normalized wxyz')
+    if len(set(n for row in data['robot']['finger_joint_names'] for n in row)) != 24:
+        raise ValueError('Expected 24 unique named finger joints')
+    required = ['qpos']
     assets = set()
     for side in ("right", "left"):
         required += [f"mano_{side}_{suffix}" for suffix in
                      ("wrist_pos", "wrist_rot", "joints")]
-        required += [f"obj_{side}_{suffix}" for suffix in ("pos", "rotmat", "vel", "angvel")]
-        directories = data[f"{side}_object_mesh_dirs"]
         slots = data[f"motion_object_slot_{side}"]
-        if slots.shape != lengths.shape or (slots < 0).any() or (slots >= len(directories)).any():
-            raise ValueError(f"Invalid {side} object slot mapping")
-        for directory in directories:
-            obj = path.parent / directory
-            if not (obj / "visual.obj").is_file():
-                raise FileNotFoundError(obj / "visual.obj")
+        if slots.shape != lengths.shape:
+            raise ValueError(f"Invalid {side} scene slot shape")
+        for i, slot in enumerate(slots.tolist()):
+            ids = data['motion_scene_object_ids'][i]
+            if slot < 0 or slot >= len(ids):
+                raise ValueError(f"Invalid {side} scene slot")
+            if data['motion_segments'][i]['hand_objects'][side] != ids[slot]:
+                raise ValueError(f"{side}: scene slot disagrees with hand_objects")
+    for ids in data['motion_scene_object_ids']:
+        for oid in ids:
+            obj = path.parent/'objects'/oid
+            if not (obj/'visual.obj').is_file(): raise FileNotFoundError(obj/'visual.obj')
+            if not any((obj/'convex').glob('*.obj')): raise FileNotFoundError(obj/'convex')
             if require_sim_assets:
-                if not (obj / ".isaac_usd/object.usd").is_file():
-                    raise FileNotFoundError(obj / ".isaac_usd/object.usd")
-                if not any((obj / ".sdf_cache").glob("*")):
-                    raise FileNotFoundError(obj / ".sdf_cache")
+                if not (obj/'.isaac_usd/object.usd').is_file(): raise FileNotFoundError(obj/'.isaac_usd/object.usd')
+                if not any((obj/'.sdf_cache').glob('*')): raise FileNotFoundError(obj/'.sdf_cache')
             assets.add(str(obj.resolve()))
+    for side in ('right','left'):
+        palm = data['robot']['palm_in_root'][side]
+        p, q = torch.tensor(palm['position_xyz']), torch.tensor(palm['quaternion_wxyz'])
+        if p.shape != (3,) or q.shape != (4,) or not torch.isfinite(p).all() or not torch.isfinite(q).all() or abs(float(q.norm())-1)>1e-5:
+            raise ValueError(f'Invalid dataset palm_in_root.{side}')
+    expected_shapes = {'qpos': (frames,38)}
+    for side in ('right','left'):
+        expected_shapes.update({f'mano_{side}_wrist_pos':(frames,3), f'mano_{side}_wrist_rot':(frames,3,3), f'mano_{side}_joints':(frames,20,3)})
     for key in required:
         value = data[key]
+        if tuple(value.shape) != expected_shapes[key]:
+            raise ValueError(f'{key}: expected {expected_shapes[key]}, got {tuple(value.shape)}')
         if value.shape[0] != frames or not torch.isfinite(value).all():
             raise ValueError(f"Invalid frame count or non-finite values: {key}")
     return {"motion_file": str(path), "clips": len(lengths), "frames": frames, "fps": fps,
@@ -89,7 +108,6 @@ def validate_motion(path, action_dim=36, require_sim_assets=True):
 
 def load_scene_catalog(path):
     """Canonical packed scene; slot count is the dataset maximum, never a constant eight."""
-    from scipy.spatial.transform import Rotation
     path = resolve_motion_path(path)
     raw = load_motion_data(path)
     dataset_fps(raw)
@@ -104,7 +122,7 @@ def load_scene_catalog(path):
     mask = torch.arange(slots)[None, :] < torch.tensor(counts)[:, None]
     hand_slots = torch.empty(len(ids), 2, dtype=torch.long)
     directories, scales = [], []
-    scene_scales = raw.get('motion_scene_object_scales')
+    scene_scales = raw['motion_scene_object_scales']
     if scene_scales is not None and len(scene_scales) != len(ids):
         raise ValueError('Scene scale metadata must have one row per clip')
     for i, objects in enumerate(ids):
@@ -113,43 +131,20 @@ def load_scene_catalog(path):
         if len(size) != len(objects) or any(not math.isfinite(float(s)) or float(s) <= 0 for s in size):
             raise ValueError(f'{raw["motion_filename"][i]}: invalid scene object scales')
         for si, side in enumerate(('right', 'left')):
-            k = int(raw[f'motion_object_slot_{side}'][i])
-            directory = raw[f'{side}_object_mesh_dirs'][k]
-            oid = Path(directory).name
-            if oid not in objects:
-                raise ValueError(f'{raw["motion_filename"][i]}: hand object {oid} absent from required scene')
-            index = objects.index(oid)
+            index = int(raw[f'motion_object_slot_{side}'][i])
+            if not 0 <= index < len(objects):
+                raise ValueError(f'{side}: invalid scene slot {index}')
+            if raw['motion_segments'][i]['hand_objects'][side] != objects[index]:
+                raise ValueError(f'{side}: scene slot and hand_objects disagree')
             hand_slots[i, si] = index
-            dirs[index] = directory
-            held_scale = float(raw[f'{side}_object_mesh_scales'][k])
-            if scene_scales is not None and not math.isclose(float(size[index]), held_scale, rel_tol=1e-6):
-                raise ValueError(f'{raw["motion_filename"][i]}: scene/hand scale mismatch for {oid}')
-            size[index] = held_scale
         directories.append(dirs + [None] * (slots-len(dirs)))
         scales.append(size + [1.] * (slots-len(size)))
-    fields = ('pos', 'quat', 'lin_vel', 'ang_vel')
     state = {}
-    if 'scene_object_pos' in raw:
-        for name, width in zip(fields, (3, 4, 3, 3)):
-            value = raw[f'scene_object_{name}'].float()
-            if value.shape != (total, slots, width) or not torch.isfinite(value).all():
-                raise ValueError(f'Invalid scene_object_{name}: expected {(total,slots,width)} finite values')
-            state[name] = value
-    else:
-        # Lossless compatibility for old two-hand packs, never infer a missing receiver pose.
-        state = {k: torch.zeros(total, slots, w) for k,w in zip(fields,(3,4,3,3))}
-        state['quat'][...,0] = 1
-        for i, objects in enumerate(ids):
-            if set(hand_slots[i].tolist()) != set(range(len(objects))):
-                raise ValueError(f'{raw["motion_filename"][i]}: required objects lack scene trajectories; repack all scene_object_* fields')
-            sl = slice(int(starts[i]), int(starts[i]+lengths[i]))
-            for si, side in enumerate(('right','left')):
-                slot = int(hand_slots[i,si])
-                state['pos'][sl,slot] = raw[f'obj_{side}_pos'][sl]
-                q = Rotation.from_matrix(raw[f'obj_{side}_rotmat'][sl].numpy()).as_quat()[:,[3,0,1,2]]
-                state['quat'][sl,slot] = torch.from_numpy(q).float()
-                state['lin_vel'][sl,slot] = raw[f'obj_{side}_vel'][sl]
-                state['ang_vel'][sl,slot] = raw[f'obj_{side}_angvel'][sl]
+    for name, width in [('pos',3),('quat',4)]:
+        value = raw[f'scene_object_{name}'].float()
+        if value.shape != (total,slots,width) or not torch.isfinite(value).all():
+            raise ValueError(f'Invalid scene_object_{name}: expected {(total,slots,width)} finite values')
+        state[name] = value
     frame_mask = torch.repeat_interleave(mask,lengths,dim=0)
     if ((state['quat'].norm(dim=-1)[frame_mask]-1).abs()>1e-3).any():
         raise ValueError('Scene quaternions must be normalized wxyz')
@@ -208,6 +203,9 @@ def configure_scene_slots(cfg, allow_play_subset=False):
     if cfg.task.robot.name == 'dex_track.xhand_free':
         cfg.task.objects['left_hand'] = {'_target_':'dex_track.xhand_free', 'side':'left',
             'finger_damping':cfg.task.robot.get('finger_damping',2.5), 'collision_variant':collision_variant}
+        for key in ('finger_stiffness', 'finger_armature', 'finger_passive_damping'):
+            if cfg.task.robot.get(key) is not None:
+                cfg.task.objects['left_hand'][key] = cfg.task.robot[key]
         if cfg.task.robot.get('palm_position_root') is not None:
             cfg.task.objects['left_hand']['palm_position_root'] = cfg.task.robot.palm_position_root
     if any(catalog['layout_supports']):

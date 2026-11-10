@@ -1,0 +1,26 @@
+# @package task
+# Integrated finger velocity targets without JRM; expose the absolute target.
+robot:
+  finger_stiffness: 20.0
+  finger_damping: 0.5  # all finger damping is in actuator Kd
+  finger_armature: 0.01
+  finger_passive_damping: 0.0
+input:
+  wrist:
+    _target_: dex_track.WristVelocityWrench
+    linear_speed: 0.5
+    angular_speed: 2.0
+    kp_pos: 350.0
+    kd_pos: 25.0
+    kp_rot: 40.0
+    kd_rot: 0.3
+    max_force: 100.0
+    max_torque: 10.0
+    desired_velocity_feedforward: false
+  finger:
+    _target_: dex_track.FingerVelocity
+    action_scale: 2.0  # rad/s; integrated once per policy step; PD velocity target = 0
+observation:
+  proprioception:
+    finger_position_target:
+      _target_: dex_track.finger_position_target

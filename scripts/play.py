@@ -76,8 +76,6 @@ def prepare_config(cfg: DictConfig) -> DictConfig:
 @hydra.main(config_path=str(CONFIG_PATH), config_name='play', version_base=None)
 def main(cfg: DictConfig):
     cfg = prepare_config(cfg)
-    from dex_track_learning.config import normalize_policy_config
-    normalize_policy_config(cfg.algo)
     steps = cfg.get('eval_steps')
     record_video = bool(cfg.get('record_video', False))
     realtime = bool(cfg.get('realtime', True))

@@ -2,8 +2,8 @@
 import numpy as np
 import torch
 from . import topology_math as geometry
-from .math import matrix_from_quat
-from ..wrist_math import rotate
+from ..transforms import matrix_from_quat
+from ..transforms import rotate
 from dex_track.assets import body_name
 
 
@@ -11,7 +11,7 @@ class TopologyReference:
     def __init__(self, command):
         self.c = c = command
         self.indices = [geometry.mano_indices(c.dataset.mano_joint_names[s]) for s in c.hand_sides]
-        motion = c.dataset.frames
+        motion = c.dataset.mano
         fingers = torch.stack([motion.mano_joint_pos_w[:, si, ids]
                                for si, ids in enumerate(self.indices)], 1)
         self.mano = torch.cat((motion.mano_wrist_pos_w[:, :, None], fingers), 2)
@@ -38,9 +38,10 @@ class TopologyReference:
             raise ValueError('Topology task requires topology.npz in every motion folder; run prepare_motion_topology.py first')
         self.object_points = torch.empty(len(payloads), 2, 50, 3, device=c.device)
         banks = []
+        object_pos, object_rot = c.dataset.hand_object_trajectory()
         for mi, payload in enumerate(payloads):
             start, length = (int(c.dataset.starts[mi]), int(c.dataset.lengths[mi]))
-            validate_topology_payload(payload, self.mano[start:start + length].cpu().numpy(), c.dataset.frames.object_pos_w[start:start + length].cpu().numpy(), c.dataset.frames.object_rotmat_w[start:start + length].cpu().numpy(), c.dataset.fps, raw_motion_digest(catalog['raw'], mi))
+            validate_topology_payload(payload, self.mano[start:start + length].cpu().numpy(), object_pos[start:start + length].cpu().numpy(), object_rot[start:start + length].cpu().numpy(), c.dataset.fps, raw_motion_digest(catalog['raw'], mi))
             self.object_points[mi] = torch.as_tensor(payload['object_points'], device=c.device)
             bits = payload['edge_bits']
             banks.append(bits)
@@ -66,16 +67,13 @@ class TopologyReference:
 
 
     def laplacian_errors(self):
-        return self.laplacian_errors_on_the_fly()
-
-    def laplacian_errors_on_the_fly(self):
         """Reference distances, exp weights, normalization and residual all GPU."""
         def compute():
             c = self.c
             frames = c.frame_indices
             points = self.object_points[c.motion_ids]
-            reference_object = torch.matmul(points, c.current_ref_motion.object_rotmat_w.transpose(-1, -2))
-            reference_object += c.current_ref_motion.object_pos_w[:, :, None]
+            reference_object = torch.matmul(points, matrix_from_quat(c.ref_object_quat_w).transpose(-1, -2))
+            reference_object += c.ref_object_pos_w[:, :, None] - c.env.scene.env_origins[:, None, None]
             reference = torch.cat((self.mano[frames], reference_object), 2)
             actual_object = torch.matmul(points, matrix_from_quat(c.object_quat_w).transpose(-1, -2))
             actual_object += c.object_pos_w[:, :, None]-c.env.scene.env_origins[:, None, None]

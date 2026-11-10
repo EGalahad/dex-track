@@ -2,7 +2,7 @@
 import hashlib
 import numpy as np
 
-SCHEMA = 'dex-track-topology-v1'
+SCHEMA = 'dex-track-topology-v2'
 
 
 def raw_motion_digest(raw, index):
@@ -11,9 +11,13 @@ def raw_motion_digest(raw, index):
     h.update(str(float(raw['meta']['fps'])).encode())
     for side in ('right', 'left'):
         h.update(str(raw[f'mano_{side}_joint_names']).encode())
-        for key in (f'mano_{side}_wrist_pos', f'mano_{side}_wrist_rot', f'mano_{side}_joints', f'obj_{side}_pos', f'obj_{side}_rotmat'):
+        for key in (f'mano_{side}_wrist_pos', f'mano_{side}_wrist_rot', f'mano_{side}_joints'):
             value = np.ascontiguousarray(raw[key][start:start+length].cpu().numpy())
             h.update(str(value.shape).encode()); h.update(value.tobytes())
+        slot = int(raw[f'motion_object_slot_{side}'][index])
+        for key in ('scene_object_pos','scene_object_quat'):
+            value = np.ascontiguousarray(raw[key][start:start+length,slot].cpu().numpy())
+            h.update(str(value.shape).encode());h.update(value.tobytes())
     return h.hexdigest()
 
 

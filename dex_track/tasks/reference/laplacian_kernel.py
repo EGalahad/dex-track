@@ -44,7 +44,9 @@ def laplacian_on_the_fly(reference, actual, adjacency, graph_mode="full"):
     if reference.is_cuda:
         squared = torch.empty(reference.shape[:-1], device=reference.device, dtype=reference.dtype)
         _laplacian_rows[(reference.numel()//(71*3), rows)](
-            reference, delta, adjacency, squared, HAND_OBJECT=graph_mode == "hand_object", num_warps=4)
+            # Pass constexpr defaults explicitly so torch.compile captures them.
+            reference, delta, adjacency, squared, N=71, STRIDE=9, BLOCK=128,
+            HAND_OBJECT=graph_mode == "hand_object", num_warps=4)
     else:
         columns = torch.arange(71, device=reference.device)
         mask = ((adjacency[..., columns//8].to(torch.int32) >> (columns%8)) & 1).bool()

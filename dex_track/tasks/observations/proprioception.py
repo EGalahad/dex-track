@@ -2,7 +2,7 @@
 import torch
 from .common import TrackObservation
 from active_adaptation.envs.utils import find_joints
-from ..reference.math import matrix_from_quat, quat_apply_inverse
+from ..transforms import matrix_from_quat, quat_apply_inverse
 
 
 class _proprioception_history(TrackObservation):
@@ -22,6 +22,7 @@ class _proprioception_history(TrackObservation):
             self.capacity = max(self.history_steps) + 1
             self.history_offsets = torch.tensor(self.history_steps, device=self.device)
             self.history_head = 0
+            self.history_indices = self.history_offsets.clone()
             self.history_buffer = value[:, None].expand(-1, self.capacity, -1).clone()
             self.pending_reset = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
             self.has_pending_reset = False
@@ -41,6 +42,7 @@ class _proprioception_history(TrackObservation):
             self._ensure_history()
             self._finish_reset()
             self.history_head = (self.history_head - 1) % self.capacity
+            self.history_indices.sub_(1).remainder_(self.capacity)
             self.history_buffer[:, self.history_head] = self._current()
 
     def reset(self, env_ids, tensordict=None):
@@ -54,8 +56,8 @@ class _proprioception_history(TrackObservation):
             return self._current()
         self._ensure_history()
         self._finish_reset()
-        indices = (self.history_offsets + self.history_head) % self.capacity
-        return self.history_buffer[:, indices].flatten(1)
+        # Tensor indices avoid specializing the graph on each Python ring-buffer head.
+        return self.history_buffer[:, self.history_indices].flatten(1)
 
 
 class wrist_projected_gravity(_proprioception_history, namespace='dex_track'):
@@ -103,6 +105,12 @@ class previous_action(_proprioception_history, namespace='dex_track'):
         return torch.cat([self.env.input_managers[n].action_buf for n in ('wrist','finger')],-1)
 
 
+class finger_position_target(TrackObservation, namespace='dex_track'):
+    """Current absolute joint position targets, in the finger action's joint order."""
+    def compute(self):
+        return self.env.input_managers['finger'].joint_target
+
+
 class wrist_controller_state(TrackObservation, namespace='dex_track'):
     """Current PD target URDF wrist frame in the current URDF wrist frame.
 
@@ -111,7 +119,7 @@ class wrist_controller_state(TrackObservation, namespace='dex_track'):
     """
     def compute(self):
         action = self.env.input_managers['wrist']
-        from ..wrist_math import inverse, multiply, rotate
+        from ..transforms import inverse, multiply, rotate
         current_p, current_q, _, _ = action.state()
         delta = rotate(inverse(current_q), action.target_p-current_p)
         rotation = matrix_from_quat(multiply(inverse(current_q), action.target_q))
